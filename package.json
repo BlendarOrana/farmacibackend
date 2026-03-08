@@ -1,5 +1,5 @@
 {
-  "name": "ragib",
+  "name": "farmaci-ecommerce",
   "version": "1.0.0",
   "main": "backend/server.js",
   "engines": {
