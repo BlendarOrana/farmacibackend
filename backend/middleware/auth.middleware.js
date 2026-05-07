@@ -2,81 +2,43 @@ import jwt from "jsonwebtoken";
 import { promisePool } from "../lib/db.js";
 
 export const protectRoute = async (req, res, next) => {
-  // Check for token in cookies (web) or Authorization header (mobile)
-  let accessToken = req.cookies && req.cookies.accessToken;
-  
-  // If no cookie token, check Authorization header
-  if (!accessToken) {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      accessToken = authHeader.substring(7); // Remove 'Bearer ' prefix
-    }
+  // Support both cookie (web) and Bearer token (if needed later)
+  let token = req.cookies?.accessToken;
+
+  if (!token) {
+    const auth = req.headers.authorization;
+    if (auth?.startsWith("Bearer ")) token = auth.slice(7);
   }
-  
-  if (!accessToken) {
-    return res.status(401).json({ message: "Unauthorized - No access token provided" });
+
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized - No token provided" });
   }
-  
+
   try {
-    const decoded = jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET);
-    
-    // Ensure all fields needed by req.user are selected
-    const result = await promisePool.query(
-      'SELECT id, name, role, active,region  FROM users WHERE id = $1',
+    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+
+    const { rows } = await promisePool.query(
+      "SELECT id, email FROM admin_users WHERE id = $1",
       [decoded.userId]
     );
-    
-    if (!result.rows || result.rows.length === 0) {
-      return res.status(401).json({ message: "User not found" });
+
+    if (!rows.length) {
+      return res.status(401).json({ message: "Unauthorized - Admin not found" });
     }
-    
-    const user = result.rows[0];
-    
-    if (!user.active) {
-      // For web users, clear cookies
-      if (req.cookies && req.cookies.accessToken) {
-        const cookieOptionsBase = {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
-          path: "/",
-        };
-        res.clearCookie("accessToken", cookieOptionsBase);
-      }
-      return res.status(403).json({ message: "Account is inactive. Please contact support." });
-    }
-    
-    req.user = user;
+
+    req.user = rows[0];
     next();
   } catch (error) {
-    let statusCode = 401;
-    let message = "Unauthorized - Invalid access token";
-
-    if (error.name === "TokenExpiredError") {
-      message = "Unauthorized - Access token expired";
-    }
-    return res.status(statusCode).json({ message });
+    const message =
+      error.name === "TokenExpiredError"
+        ? "Unauthorized - Token expired"
+        : "Unauthorized - Invalid token";
+    res.status(401).json({ message });
   }
 };
 
+// Kept for route-level use if you ever add roles to admin_users
 export const adminRoute = (req, res, next) => {
-  if (req.user && (req.user.role === "admin" || req.user.role === "manager")) {
-    next();
-  } else {
-    return res.status(403).json({ message: "Access denied - Admin or Manager only" });
-  }
+  if (req.user) return next();
+  res.status(403).json({ message: "Access denied" });
 };
-
-
-export const managerRoute = (req, res, next) => {
-  if (req.user &&  req.user.role === "manager") {
-    next();
-  } else {
-    return res.status(403).json({ message: "Access denied - Admin or Manager only" });
-  }
-};
-
-
-
-
-

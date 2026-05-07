@@ -1,275 +1,241 @@
 import { create } from "zustand";
-import axios from "../lib/axios";
-import { toast } from "react-hot-toast";
+import axiosInstance from "../lib/axios";
+
+const api = {
+  get:    (url, config)       => axiosInstance.get(`/admin${url}`, config),
+  post:   (url, data, config) => axiosInstance.post(`/admin${url}`, data, config),
+  put:    (url, data, config) => axiosInstance.put(`/admin${url}`, data, config),
+  patch:  (url, data)         => axiosInstance.patch(`/admin${url}`, data),
+  delete: (url)               => axiosInstance.delete(`/admin${url}`),
+};
 
 export const useAdminStore = create((set, get) => ({
-  users: [],
-  pendingUsers: [],
-  shiftRequests: { pending: [], approved: [], rejected: [] }, // Add this line
-  currentUser: null,
-  loading: false,
-  error: null,
-  usersLoaded: false,
-  pendingUsersLoaded: false,
-  
-  // Get all users (with caching)
-  getAllUsers: async () => {
-    if (get().usersLoaded && get().users.length > 0) {
-      return;
-    }
-    
-    set({ loading: true });
+  // ─── Dashboard ───────────────────────────────────────────────
+  stats: null,
+  statsLoading: false,
+  banners: [],
+  bannersLoading: false,
+
+ fetchBanners: async () => {
+    set({ bannersLoading: true });
     try {
-      const res = await axios.get("/admin/users");
-      set({ users: res.data, loading: false, error: null, usersLoaded: true });
-    } catch (error) {
-      set({ 
-        loading: false, 
-        error: error.response?.data?.message || "Failed to fetch users" 
-      });
-      toast.error(error.response?.data?.message || "Failed to fetch users");
+      const { data } = await api.get("/banners");
+      set({ banners: data, bannersLoading: false });
+    } catch (_) {
+      set({ bannersLoading: false });
     }
   },
-  
-  // Force refresh users (bypass cache)
-  refreshUsers: async () => {
-    set({ loading: true, usersLoaded: false });
+
+  createBanner: async (formData) => {
     try {
-      const res = await axios.get("/admin/users");
-      set({ users: res.data, loading: false, error: null, usersLoaded: true });
-    } catch (error) {
-      set({ 
-        loading: false, 
-        error: error.response?.data?.message || "Failed to fetch users" 
+      const { data } = await api.post("/banners", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
-      toast.error(error.response?.data?.message || "Failed to fetch users");
+      set((s) => ({ banners: [data, ...s.banners] }));
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || "Failed" };
     }
   },
-  
-  // Get pending users (with caching)
-  getPendingUsers: async () => {
-    if (get().pendingUsersLoaded && get().pendingUsers.length > 0) {
-      return;
-    }
-    
-    set({ loading: true });
+
+  deleteBanner: async (id) => {
     try {
-      const res = await axios.get("/admin/users/pending");
-      set({ 
-        pendingUsers: res.data.users, 
-        loading: false, 
-        error: null, 
-        pendingUsersLoaded: true 
-      });
-    } catch (error) {
-      set({ 
-        loading: false, 
-        error: error.response?.data?.message || "Failed to fetch pending users" 
-      });
-      toast.error(error.response?.data?.message || "Failed to fetch pending users");
+      await api.delete(`/banners/${id}`);
+      set((s) => ({ banners: s.banners.filter((b) => b.id !== id) }));
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || "Failed" };
     }
   },
-  
-  // Force refresh pending users (bypass cache)
-  refreshPendingUsers: async () => {
-    set({ loading: true, pendingUsersLoaded: false });
-    try {
-      const res = await axios.get("/admin/users/pending");
-      set({ 
-        pendingUsers: res.data.users, 
-        loading: false, 
-        error: null, 
-        pendingUsersLoaded: true 
-      });
-    } catch (error) {
-      set({ 
-        loading: false, 
-        error: error.response?.data?.message || "Failed to fetch pending users" 
-      });
-      toast.error(error.response?.data?.message || "Failed to fetch pending users");
-    }
-  },
-  
-  // Accept a pending user
-acceptUser: async (userId, region, shift, contractStartDate) => {
+
+
+  reorderBanners: async (orderedIds) => {
   try {
-    const res = await axios.put(
-      `/admin/users/${userId}/accept`,
-      { 
-        region, 
-        shift: parseInt(shift), // Convert to integer to ensure it's 1 or 2
-        contractStartDate 
-      }
-    );
-    
-    if (res.status === 200) {
-      set((state) => ({
-        pendingUsers: state.pendingUsers.filter((user) => user.id !== userId),
-      }));
-      toast.success("Përdoruesi u pranua me sukses");
-      return true;
-    }
+    await axios.post('/api/banners/reorder', { orderedIds });
+    get().fetchBanners(); // Refresh list to ensure sync
   } catch (error) {
-    toast.error(error.response?.data?.message || "Gabim gjatë pranimit të përdoruesit");
-    return false;
+    console.error("Failed to reorder", error);
   }
 },
-  // Create a new user
-  createUser: async (userData) => {
-    set({ loading: true });
+
+  updateBannerToggle: async (id, active) => {
     try {
-      const res = await axios.post("/admin/users", userData);
-      set(state => ({ 
-        users: [res.data, ...state.users], 
-        loading: false, 
-        error: null 
+      const { data } = await api.put(`/banners/${id}`, { active });
+      set((s) => ({
+        banners: s.banners.map((b) => (b.id === id ? data : b)),
       }));
-      toast.success("User created successfully");
-      return res.data;
-    } catch (error) {
-      set({ 
-        loading: false, 
-        error: error.response?.data?.message || "Failed to create user" 
-      });
-      toast.error(error.response?.data?.message || "Failed to create user");
+      return { success: true };
+    } catch (err) {
+      return { success: false };
+    }
+  },
+
+
+
+
+
+
+
+  fetchStats: async () => {
+    set({ statsLoading: true });
+    try {
+      const { data } = await api.get("/dashboard");
+      set({ stats: data, statsLoading: false });
+    } catch (_) {
+      set({ statsLoading: false });
+    }
+  },
+
+  // ─── Categories ──────────────────────────────────────────────
+  categories: [],
+  categoriesLoading: false,
+
+  fetchCategories: async () => {
+    set({ categoriesLoading: true });
+    try {
+      const { data } = await api.get("/categories");
+      set({ categories: data, categoriesLoading: false });
+    } catch (_) {
+      set({ categoriesLoading: false });
+    }
+  },
+
+  createCategory: async (name) => {
+    try {
+      const { data } = await api.post("/categories", { name });
+      set((s) => ({ categories: [...s.categories, data] }));
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || "Failed" };
+    }
+  },
+
+  deleteCategory: async (id) => {
+    try {
+      await api.delete(`/categories/${id}`);
+      set((s) => ({ categories: s.categories.filter((c) => c.id !== id) }));
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || "Failed" };
+    }
+  },
+
+  // ─── Products ────────────────────────────────────────────────
+  products: [],
+  productsLoading: false,
+  selectedProduct: null,
+
+  fetchProducts: async () => {
+    set({ productsLoading: true });
+    try {
+      const { data } = await api.get("/products");
+      set({ products: data, productsLoading: false });
+    } catch (_) {
+      set({ productsLoading: false });
+    }
+  },
+
+  fetchProduct: async (id) => {
+    try {
+      const { data } = await api.get(`/products/${id}`);
+      set({ selectedProduct: data });
+      return data;
+    } catch (err) {
       return null;
     }
   },
-  
-  // Update user
-  updateUser: async (id, userData) => {
-    set({ loading: true });
+
+  createProduct: async (formData) => {
     try {
-      const res = await axios.put(`/admin/users/${id}`, userData);
-      set(state => ({
-        users: state.users.map(user => user.id === id ? res.data : user),
-        currentUser: state.currentUser?.id === id ? res.data : state.currentUser,
-        loading: false,
-        error: null
-      }));
-      toast.success("User updated successfully");
-      return res.data;
-    } catch (error) {
-      set({ 
-        loading: false, 
-        error: error.response?.data?.message || "Failed to update user" 
+      const { data } = await api.post("/products", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
-      toast.error(error.response?.data?.message || "Failed to update user");
+      set((s) => ({ products: [data, ...s.products] }));
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || "Failed to create product" };
+    }
+  },
+
+  updateProduct: async (id, formData) => {
+    try {
+      const { data } = await api.put(`/products/${id}`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      set((s) => ({
+        products: s.products.map((p) => (p.id === id ? data : p)),
+        selectedProduct: data,
+      }));
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || "Failed to update product" };
+    }
+  },
+
+  updateStock: async (id, quantity) => {
+    try {
+      const { data } = await api.patch(`/products/${id}/stock`, { quantity });
+      set((s) => ({
+        products: s.products.map((p) => (p.id === id ? { ...p, quantity: data.quantity } : p)),
+      }));
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || "Failed to update stock" };
+    }
+  },
+
+  deleteProduct: async (id) => {
+    try {
+      await api.delete(`/products/${id}`);
+      set((s) => ({ products: s.products.filter((p) => p.id !== id) }));
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || "Failed to delete product" };
+    }
+  },
+
+  // ─── Orders ──────────────────────────────────────────────────
+  orders: [],
+  ordersLoading: false,
+  selectedOrder: null,
+  orderFilters: { status: "", payment_status: "" },
+
+  fetchOrders: async (filters = {}) => {
+    set({ ordersLoading: true });
+    try {
+      const params = new URLSearchParams();
+      if (filters.status) params.append("status", filters.status);
+      if (filters.payment_status) params.append("payment_status", filters.payment_status);
+      const { data } = await api.get(`/orders?${params.toString()}`);
+      set({ orders: data, ordersLoading: false, orderFilters: filters });
+    } catch (_) {
+      set({ ordersLoading: false });
+    }
+  },
+
+  fetchOrder: async (id) => {
+    try {
+      const { data } = await api.get(`/orders/${id}`);
+      set({ selectedOrder: data });
+      return data;
+    } catch (_) {
       return null;
     }
   },
-  
-  // Change user password
-  changeUserPassword: async (id, password) => {
-    set({ loading: true });
+
+  updateOrderStatus: async (id, updates) => {
     try {
-      const res = await axios.patch(`/admin/users/${id}/password`, { password });
-      set({ loading: false, error: null });
-      toast.success("Password changed successfully");
-      return true;
-    } catch (error) {
-      set({ 
-        loading: false, 
-        error: error.response?.data?.message || "Failed to change password" 
-      });
-      toast.error(error.response?.data?.message || "Failed to change password");
-      return false;
-    }
-  },
-  
-  // Delete user
-  deleteUser: async (id) => {
-    set({ loading: true });
-    try {
-      await axios.delete(`/admin/users/${id}`);
-      set(state => ({
-        users: state.users.filter(user => user.id !== id),
-        currentUser: state.currentUser?.id === id ? null : state.currentUser,
-        loading: false,
-        error: null
+      const { data } = await api.patch(`/orders/${id}/status`, updates);
+      set((s) => ({
+        orders: s.orders.map((o) => (o.id === id ? { ...o, ...data } : o)),
+        selectedOrder: s.selectedOrder?.id === id ? { ...s.selectedOrder, ...data } : s.selectedOrder,
       }));
-      toast.success("User deleted successfully");
-      return true;
-    } catch (error) {
-      set({ 
-        loading: false, 
-        error: error.response?.data?.message || "Failed to delete user" 
-      });
-      toast.error(error.response?.data?.message || "Failed to delete user");
-      return false;
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || "Failed to update order" };
     }
   },
-  
-  // Clear current user selection
-  clearCurrentUser: () => {
-    set({ currentUser: null });
-  },
-  
-  // Clear any errors
-  clearError: () => {
-    set({ error: null });
-  },
 
-
-
-
-
-getAllShiftRequests: async () => {
-  set({ loading: true });
-  try {
-    const res = await axios.get("/admin/shift-requests");
-    set({ 
-      shiftRequests: res.data.requests, 
-      loading: false, 
-      error: null 
-    });
-  } catch (error) {
-    set({ 
-      loading: false, 
-      error: error.response?.data?.message || "Failed to fetch shift requests" 
-    });
-    toast.error(error.response?.data?.message || "Failed to fetch shift requests");
-  }
-},
-
-// Update shift request status (approve/reject)
-updateShiftRequestStatus: async (requestId, status) => {
-  set({ loading: true });
-  try {
-    const res = await axios.patch(`/admin/shift-requests/${requestId}`, { status });
-    
-    // Update local state
-    set(state => ({
-      shiftRequests: {
-        pending: state.shiftRequests.pending.filter(r => r.id !== requestId),
-        approved: status === 'approved' 
-          ? [...state.shiftRequests.approved, state.shiftRequests.pending.find(r => r.id === requestId)]
-          : state.shiftRequests.approved,
-        rejected: status === 'rejected'
-          ? [...state.shiftRequests.rejected, state.shiftRequests.pending.find(r => r.id === requestId)]
-          : state.shiftRequests.rejected
-      },
-      loading: false,
-      error: null
-    }));
-    
-    return true;
-  } catch (error) {
-    set({ 
-      loading: false, 
-      error: error.response?.data?.message || "Failed to update shift request" 
-    });
-    toast.error(error.response?.data?.message || "Failed to update shift request");
-    return false;
-  }
-},
-
-
-  
-  // Reset cache (useful for logout or manual refresh)
-  resetUsersCache: () => {
-    set({ users: [], usersLoaded: false, pendingUsers: [], pendingUsersLoaded: false });
-  }
-
-
+  setSelectedOrder: (order) => set({ selectedOrder: order }),
+  setSelectedProduct: (product) => set({ selectedProduct: product }),
 }));

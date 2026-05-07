@@ -1,230 +1,79 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useUserStore } from "../stores/useUserStore";
-import LoadingSpinner from "../components/LoadingSpinner";
+import { useAuthStore } from "../stores/useAuthStore";
 
-// Input sanitization utilities
-const sanitizeInput = (input) => {
-  if (!input) return '';
-  return input
-    .trim()
-    .replace(/[<>]/g, '') // Remove HTML tags
-    .replace(/['"]/g, '') // Remove quotes that could be used for SQL injection
-    .replace(/[;]/g, '') // Remove semicolons
-    .replace(/--/g, '') // Remove SQL comments
-    .replace(/\/\*/g, '') // Remove /* comments
-    .replace(/\*\//g, '') // Remove */ comments
-    .replace(/\\/g, ''); // Remove backslashes
-};
-
-const sanitizeName = (name) => {
-  if (!name) return '';
-  return sanitizeInput(name)
-    .substring(0, 50); // Reasonable name length limit
-};
-
-const sanitizePassword = (password) => {
-  if (!password) return '';
-  return password
-    .trim()
-    .replace(/[<>]/g, '') // Only remove HTML tags, keep other chars for password complexity
-    .substring(0, 128); // Reasonable password length limit
-};
-
-
-const validatePassword = (password) => {
-  return password && password.length <= 128;
-};
-
-// Check for suspicious patterns that might indicate injection attempts
-const containsSuspiciousPatterns = (input) => {
-  const suspiciousPatterns = [
-    /union\s+select/i,
-    /insert\s+into/i,
-    /delete\s+from/i,
-    /drop\s+table/i,
-    /update\s+set/i,
-    /script\s*>/i,
-    /javascript:/i,
-    /on\w+\s*=/i,
-    /exec\s*\(/i,
-    /eval\s*\(/i
-  ];
-  
-  return suspiciousPatterns.some(pattern => pattern.test(input));
-};
-
-
-function LoginPage() {
-  const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
-  const [validationErrors, setValidationErrors] = useState({});
-  const { login, loading, error, user } = useUserStore();
+export default function LoginPage() {
+  const [form, setForm] = useState({ email: "", password: "" });
+  const { login, isLoading, error, admin, clearError } = useAuthStore();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (name || password) {
-      setValidationErrors({});
-    }
-  }, [name, password]);
-
-  useEffect(() => {
-    if (user) {
-      if (user.role === "admin") {
-        navigate("/admin");
-      } else {
-        navigate("/");
-      }
-    }
-  }, [user, navigate]);
-
-  const handleNameChange = (e) => {
-    const rawValue = e.target.value;
- 
-    const sanitizedName = (rawValue);
-    setName(sanitizedName);
-  };
-
-  const handlePasswordChange = (e) => {
-    const rawValue = e.target.value;
-    if (containsSuspiciousPatterns(rawValue)) {
-      setValidationErrors(prev => ({ ...prev, password: "Format i pavlefshëm i fjalëkalimit" }));
-      return;
-    }
-    const sanitizedPassword = sanitizePassword(rawValue);
-    setPassword(sanitizedPassword);
-  };
-
-  const validateForm = () => {
-    const errors = {};
-
-    if (!password) {
-      errors.password = "Fjalëkalimi kërkohet";
-    } else if (!validatePassword(password)) {
-      errors.password = "Fjalëkalimi duhet të jetë midis 6 dhe 128 karaktereve";
-    }
-
-    setValidationErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
+    if (admin) navigate("/admin/dashboard");
+  }, [admin]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!validateForm()) {
-      return;
-    }
-    const sanitizedData = {
-      name: sanitizeName(name),
-      password: sanitizePassword(password)
-    };
-    if (!sanitizedData.name || !sanitizedData.password) {
-      setValidationErrors({ general: "Të dhëna të pavlefshme" });
-      return;
-    }
-
-    await login(sanitizedData.name, sanitizedData.password);
+    const result = await login(form.email, form.password);
+    if (result.success) navigate("/admin/dashboard");
   };
-  
-  // Main container with a dark, professional gradient background.
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-white">
-      
-      {/* Login Card */}
-      <div className="bg-gray-800/80 backdrop-blur-sm p-8 rounded-2xl shadow-2xl w-full max-w-md border border-cyan-500/30">
-        
-        {/* Logo Integration */}
-        <div className="mb-8 w-full max-w-lg">
-          <a href="/" aria-label="Kthehu në faqen kryesore">
-             {/* The path should match where you place the logo in your public folder */}
-            <img src="/Kosovamed.webp" alt="Kosovamed Logo" className="mx-auto h-14 w-auto"/>
-          </a>
-        </div>
-        
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white">Admin panel</h1>
-        </div>
-        
-        <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="name">
-              Emri i përdoruesit
-            </label>
-            <input
-              id="name"
-              type="text"
-              className={`w-full px-4 py-3 bg-gray-700 text-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-75 transition duration-200 placeholder-gray-400 ${
-                validationErrors.name 
-                  ? 'border-red-500 focus:ring-red-500' 
-                  : 'border-gray-600 focus:border-cyan-500 focus:ring-cyan-500'
-              }`}
-              value={name}
-              onChange={handleNameChange}
-              placeholder="Emri juaj"
-              required
-              maxLength={50}
-              autoComplete="username"
-              spellCheck="false"
-            />
-            {validationErrors.name && (
-              <p className="text-red-500 text-sm mt-1">{validationErrors.name}</p>
-            )}
+    <div className="min-h-screen bg-base-200 flex items-center justify-center px-4">
+      <div className="w-full max-w-sm">
+
+        {/* Logo / Brand */}
+
+
+        {/* Card */}
+        <div className="card bg-base-100 shadow-xl">
+          <div className="card-body gap-4">
+
+ 
+
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <div className="form-control gap-1">
+                <label className="label py-0">
+                  <span className="label-text font-medium">Email</span>
+                </label>
+                <input
+                  type="email"
+                  placeholder="admin@example.com"
+                  className="input input-bordered w-full"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="form-control gap-1">
+                <label className="label py-0">
+                  <span className="label-text font-medium">Password</span>
+                </label>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  className="input input-bordered w-full"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                className={`btn btn-primary w-full mt-2 ${isLoading ? "loading" : ""}`}
+                disabled={isLoading}
+              >
+                {isLoading ? "Signing in..." : "Sign In"}
+              </button>
+            </form>
+
           </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="password">
-              Fjalëkalimi
-            </label>
-            <input
-              id="password"
-              type="password"
-              className={`w-full px-4 py-3 bg-gray-700 text-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-75 transition duration-200 ${
-                validationErrors.password 
-                  ? 'border-red-500 focus:ring-red-500' 
-                  : 'border-gray-600 focus:border-cyan-500 focus:ring-cyan-500'
-              }`}
-              value={password}
-              onChange={handlePasswordChange}
-              required
-              maxLength={128}
-              autoComplete="current-password"
-              spellCheck="false"
-            />
-            {validationErrors.password && (
-              <p className="text-red-500 text-sm mt-1">{validationErrors.password}</p>
-            )}
-          </div>
-          
-          {validationErrors.security && (
-            <div role="alert" className="p-3 bg-red-500/10 border-l-4 border-red-500 text-red-400 text-sm rounded-md">
-              <p>{validationErrors.security}</p>
-            </div>
-          )}
-          
-          {validationErrors.general && (
-            <div role="alert" className="p-3 bg-red-500/10 border-l-4 border-red-500 text-red-400 text-sm rounded-md">
-              <p>{validationErrors.general}</p>
-            </div>
-          )}
-          
-          {error && (
-            <div role="alert" className="p-3 bg-red-500/10 border-l-4 border-red-500 text-red-400 text-sm rounded-md">
-              <p>{error}</p>
-            </div>
-          )}
-          
-          <button
-            type="submit"
-            className="w-full bg-cyan-500 hover:bg-cyan-600 disabled:bg-cyan-500/50 text-white font-bold py-3 px-4 rounded-lg transition duration-300 flex justify-center items-center shadow-lg "
-            disabled={loading}
-          >
-            {loading ? <LoadingSpinner size="sm" /> : "Identifikohu"}
-          </button>
-        </form>
-        
+        </div>
+
 
       </div>
     </div>
   );
 }
-
-export default LoginPage;

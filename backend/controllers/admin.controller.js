@@ -1,561 +1,373 @@
-import bcrypt from 'bcryptjs';
 import { promisePool } from "../lib/db.js";
-import { uploadToS3, deleteFromS3, getCloudFrontUrl } from '../lib/s3.js';
-import multer from 'multer';
-import NotificationService from '../services/notification.service.js'
+import { processAndUpload, deleteFromS3, getUrl } from "../lib/s3.js";
+import { v4 as uuidv4 } from "uuid";
+// uuid v9+ still supports this named import — no change needed
 
-// Configure multer for file uploads
-const storage = multer.memoryStorage();
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only PDF files are allowed for contracts'));
-    }
-  }
-});
+// ─── CATEGORIES ───────────────────────────────────────────────
 
-// Get all users
-export const getAllUsers = async (req, res) => {
-  try {
-
-    let query = `
-      SELECT id, name, number, role, active, region, title, contract_url, email, profile_image_url, status,
-             id_card_number, address, contract_start_date, contract_end_date, license_url,shift
-      FROM users
-    `;
-    
-    const queryParams = [];
-    
-    // If user is a manager, filter by their region
-    if (req.user.role === 'manager') {
-      query += ` WHERE region = $1`;
-      queryParams.push(req.user.region);
-    }
-    
-    
-    const result = await promisePool.query(query, queryParams);
-
-    // Process CloudFront URLs for contract_url and profile_image_url
-    const users = result.rows.map(user => ({
-      ...user,
-      contract_url: user.contract_url ? getCloudFrontUrl(user.contract_url) : null,
-      profile_image_url: user.profile_image_url ? getCloudFrontUrl(user.profile_image_url) : null,
-      license_url: user.license_url ? getCloudFrontUrl(user.license_url) : null
-    }));
-    
-    res.json(users);
-  } catch (error) {
-    console.error('Error fetching users:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
+export const getCategories = async (req, res) => {
+  const { rows } = await promisePool.query("SELECT * FROM categories ORDER BY name");
+  res.json(rows);
 };
-// Get a single user by ID
-export const getUserById = async (req, res) => {
+
+export const createCategory = async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: "Name is required" });
+  const { rows } = await promisePool.query(
+    "INSERT INTO categories (name) VALUES ($1) RETURNING *",
+    [name]
+  );
+  res.status(201).json(rows[0]);
+};
+
+export const deleteCategory = async (req, res) => {
+  await promisePool.query("DELETE FROM categories WHERE id = $1", [req.params.id]);
+  res.json({ message: "Category deleted" });
+};
+
+// ─── PRODUCTS ─────────────────────────────────────────────────
+
+export const getProducts = async (req, res) => {
+  const { rows } = await promisePool.query(`
+    SELECT p.*, c.name AS category_name
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.id
+    ORDER BY p.created_at DESC
+  `);
+  res.json(rows);
+};
+
+export const getProduct = async (req, res) => {
+  const { rows } = await promisePool.query(
+    `SELECT p.*, c.name AS category_name
+     FROM products p LEFT JOIN categories c ON p.category_id = c.id
+     WHERE p.id = $1`,
+    [req.params.id]
+  );
+  if (!rows.length) return res.status(404).json({ error: "Product not found" });
+  res.json(rows[0]);
+};
+
+export const createProduct = async (req, res) => {
+  const { name, description, price, quantity, category_id } = req.body;
+  if (!name || !price) return res.status(400).json({ error: "Name and price are required" });
+
+  let image_url = null;
+
+  if (req.file) {
+    const key = `products/${uuidv4()}.webp`;
+    const result = await processAndUpload(req.file.buffer, key, { maxWidth: 800, maxHeight: 800, quality: 85 });
+    image_url = result.url;
+  }
+
+  const { rows } = await promisePool.query(
+    `INSERT INTO products (name, description, price, quantity, category_id, image_url)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [name, description || null, price, quantity || 0, category_id || null, image_url]
+  );
+  res.status(201).json(rows[0]);
+};
+
+export const updateProduct = async (req, res) => {
+  const { name, description, price, quantity, category_id } = req.body;
   const { id } = req.params;
 
-  try {
-    const result = await promisePool.query(`
-      SELECT id, name, number, role, active, region, title, contract_url, email
-      FROM users
-      WHERE id = $1
-    `, [id]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'User not found' });
+  const existing = await promisePool.query("SELECT * FROM products WHERE id = $1", [id]);
+  if (!existing.rows.length) return res.status(404).json({ error: "Product not found" });
+
+  let image_url = existing.rows[0].image_url;
+
+  if (req.file) {
+    // Delete old image from S3 if exists
+    if (image_url) {
+      const oldKey = image_url.split(".com/")[1];
+      if (oldKey) await deleteFromS3(oldKey);
     }
-    
-    const user = result.rows[0];
-    // Process CloudFront URL for contract_url
-    user.contract_url = user.contract_url ? getCloudFrontUrl(user.contract_url) : null;
-    
-    res.json(user);
+    const key = `products/${uuidv4()}.webp`;
+    const result = await processAndUpload(req.file.buffer, key, { maxWidth: 800, maxHeight: 800, quality: 85 });
+    image_url = result.url;
+  }
+
+  const { rows } = await promisePool.query(
+    `UPDATE products SET name=$1, description=$2, price=$3, quantity=$4, category_id=$5, image_url=$6
+     WHERE id=$7 RETURNING *`,
+    [
+      name ?? existing.rows[0].name,
+      description ?? existing.rows[0].description,
+      price ?? existing.rows[0].price,
+      quantity ?? existing.rows[0].quantity,
+      category_id ?? existing.rows[0].category_id,
+      image_url,
+      id,
+    ]
+  );
+  res.json(rows[0]);
+};
+
+export const updateStock = async (req, res) => {
+  const { quantity } = req.body;
+  if (quantity == null) return res.status(400).json({ error: "Quantity is required" });
+  const { rows } = await promisePool.query(
+    "UPDATE products SET quantity=$1 WHERE id=$2 RETURNING id, name, quantity",
+    [quantity, req.params.id]
+  );
+  if (!rows.length) return res.status(404).json({ error: "Product not found" });
+  res.json(rows[0]);
+};
+
+export const deleteProduct = async (req, res) => {
+  const { rows } = await promisePool.query("SELECT image_url FROM products WHERE id = $1", [req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: "Product not found" });
+
+  if (rows[0].image_url) {
+    const key = rows[0].image_url.split(".com/")[1];
+    if (key) await deleteFromS3(key);
+  }
+
+  await promisePool.query("DELETE FROM products WHERE id = $1", [req.params.id]);
+  res.json({ message: "Product deleted" });
+};
+
+// ─── ORDERS ───────────────────────────────────────────────────
+
+export const getOrders = async (req, res) => {
+  const { status, payment_status, payment_type } = req.query;
+
+  let query = `
+    SELECT o.*, json_agg(
+      json_build_object(
+        'id', oi.id,
+        'product_id', oi.product_id,
+        'product_name', p.name,
+        'quantity', oi.quantity,
+        'price_at_purchase', oi.price_at_purchase
+      )
+    ) AS items
+    FROM orders o
+    LEFT JOIN order_items oi ON o.id = oi.order_id
+    LEFT JOIN products p ON oi.product_id = p.id
+    WHERE 1=1
+  `;
+  const params = [];
+
+  // Add filters dynamically
+  if (status) {
+    params.push(status);
+    query += ` AND o.order_status = $${params.length}`;
+  }
+  if (payment_status) {
+    params.push(payment_status);
+    query += ` AND o.payment_status = $${params.length}`;
+  }
+  if (payment_type) {
+    params.push(payment_type);
+    query += ` AND o.payment_type = $${params.length}`;
+  }
+
+  query += " GROUP BY o.id ORDER BY o.created_at DESC";
+
+  try {
+    const { rows } = await promisePool.query(query, params);
+    res.json(rows);
   } catch (error) {
-    console.error('Error fetching user:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ error: error.message });
   }
 };
 
-// Create a new user
-export const createUser = async (req, res) => {
-  // Use multer to handle file upload first
-  upload.single('contract')(req, res, async (err) => {
-    if (err) {
-      console.error("Multer upload error:", err);
-      if (err instanceof multer.MulterError) {
-        return res.status(400).json({ message: 'File upload error', error: err.message });
-      }
-      return res.status(400).json({ message: err.message });
-    }
+export const getOrder = async (req, res) => {
+  try {
+    const { rows } = await promisePool.query(
+      `SELECT o.*, json_agg(
+        json_build_object(
+          'id', oi.id,
+          'product_id', oi.product_id,
+          'product_name', p.name,
+          'quantity', oi.quantity,
+          'price_at_purchase', oi.price_at_purchase
+        )
+      ) AS items
+      FROM orders o
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN products p ON oi.product_id = p.id
+      WHERE o.id = $1
+      GROUP BY o.id`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Order not found" });
+    res.json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
 
-    const { 
-      name, 
-      password, 
-      number, 
-      role, 
-      active,
-      region,
-      title,
-      email
-    } = req.body;
+export const updateOrderStatus = async (req, res) => {
+  const { order_status, payment_status } = req.body;
+  const { id } = req.params;
 
-    try {
-      // Hash the password
-      const hashedPassword = await bcrypt.hash(password, 10);
-      
-      // Set default values for optional fields
-      const isActive = active !== undefined ? active : true;
-      const userRole = role || 'shop';
-      
-      let contractKey = null;
-      
-      // Handle contract PDF upload if file exists
-      if (req.file) {
-        const key = `contracts/${Date.now()}-${req.file.originalname}`;
-        
-        const uploadResult = await uploadToS3(
-          req.file.buffer,
-          key,
-          req.file.originalname,
-          req.file.mimetype,
-          false // Don't process PDFs as images
-        );
-        
-        contractKey = uploadResult.Key;
-      }
-      
-      // Insert the new user
-      const result = await promisePool.query(`
-        INSERT INTO users (name, password, number, role, active, region, title, contract_url, email)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id, name, number, role, active, region, title, contract_url, email
-      `, [name, hashedPassword, number, userRole, isActive, region, title, contractKey, email]);
-      
-      const newUser = result.rows[0];
-      // Process CloudFront URL for response
-      newUser.contract_url = newUser.contract_url ? getCloudFrontUrl(newUser.contract_url) : null;
-      
-      res.status(201).json(newUser);
-    } catch (error) {
-      console.error('Error creating user:', error);
-      res.status(500).json({ message: 'Server error', error: error.message });
-    }
+  const fields = [];
+  const values = [];
+
+  if (order_status) { fields.push(`order_status = $${fields.length + 1}`); values.push(order_status); }
+  if (payment_status) { fields.push(`payment_status = $${fields.length + 1}`); values.push(payment_status); }
+
+  if (!fields.length) return res.status(400).json({ error: "Nothing to update" });
+
+  values.push(id);
+  const { rows } = await promisePool.query(
+    `UPDATE orders SET ${fields.join(", ")} WHERE id = $${values.length} RETURNING *`,
+    values
+  );
+  if (!rows.length) return res.status(404).json({ error: "Order not found" });
+  res.json(rows[0]);
+};
+
+// ─── DASHBOARD STATS ──────────────────────────────────────────
+
+export const getDashboardStats = async (req, res) => {
+  const [orders, revenue, products, pendingOrders] = await Promise.all([
+    promisePool.query("SELECT COUNT(*) FROM orders"),
+    promisePool.query("SELECT COALESCE(SUM(total_amount), 0) AS total FROM orders WHERE payment_status = 'PAID'"),
+    promisePool.query("SELECT COUNT(*) FROM products"),
+    promisePool.query("SELECT COUNT(*) FROM orders WHERE order_status = 'NEW'"),
+  ]);
+
+  res.json({
+    total_orders: parseInt(orders.rows[0].count),
+    total_revenue: parseFloat(revenue.rows[0].total),
+    total_products: parseInt(products.rows[0].count),
+    pending_orders: parseInt(pendingOrders.rows[0].count),
   });
 };
 
-// Update a user
-export const updateUser = async (req, res) => {
-  // Use multer to handle multiple file uploads
-  upload.fields([
-    { name: 'contract', maxCount: 1 },
-    { name: 'license', maxCount: 1 }
-  ])(req, res, async (err) => {
-    if (err) {
-      console.error("Multer upload error:", err);
-      if (err instanceof multer.MulterError) {
-        return res.status(400).json({ message: 'File upload error', error: err.message });
-      }
-      return res.status(400).json({ message: err.message });
-    }
 
+
+
+// ─── BANNERS ───────────────────────────────────────────────────
+export const getBanners = async (req, res) => {
+  try {
+    const { rows } = await promisePool.query(`
+      SELECT b.*, p.name AS product_name 
+      FROM banners b
+      LEFT JOIN products p ON b.product_id = p.id
+      ORDER BY b.sort_order ASC, b.created_at DESC
+    `);
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching banners:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const createBanner = async (req, res) => {
+  try {
+    const { product_id, sort_order, active } = req.body;
+    
+    if (!req.file) return res.status(400).json({ error: "Banner image is required" });
+
+    const key = `banners/${uuidv4()}.webp`;
+    const result = await processAndUpload(req.file.buffer, key, { 
+      maxWidth: 1200, 
+      maxHeight: 600, 
+      quality: 90 
+    });
+
+    const { rows } = await promisePool.query(
+      `INSERT INTO banners (product_id, image_url, sort_order, active)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [
+        product_id || null, 
+        result.url, 
+        sort_order || 0, 
+        active === 'true' || active === true
+      ]
+    );
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    console.error("Error creating banner:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const updateBanner = async (req, res) => {
+  try {
     const { id } = req.params;
-    const { 
-      name, 
-      number, 
-      role, 
-      active,
-      region,
-      title,
-      email,
-      id_card_number,
-      address,
-      contract_start_date,
-      contract_end_date,
-      shift
-    } = req.body;
-    
-    try {
-      // Get current user data to check for existing contract and license
-      const currentUser = await promisePool.query(
-        'SELECT contract_url, license_url FROM users WHERE id = $1',
-        [id]
-      );
-      
-      if (currentUser.rows.length === 0) {
-        return res.status(404).json({ message: 'User not found' });
+    const { product_id, sort_order, active } = req.body;
+
+    const existing = await promisePool.query("SELECT * FROM banners WHERE id = $1", [id]);
+    if (!existing.rows.length) return res.status(404).json({ error: "Banner not found" });
+
+    let image_url = existing.rows[0].image_url;
+
+    if (req.file) {
+      if (image_url) {
+        const oldKey = image_url.split(".com/")[1];
+        if (oldKey) await deleteFromS3(oldKey);
       }
-      
-      const oldContractKey = currentUser.rows[0].contract_url;
-      const oldLicenseKey = currentUser.rows[0].license_url;
-      let contractKey = oldContractKey;
-      let licenseKey = oldLicenseKey;
-      
-      // Handle contract PDF upload if new file exists
-      if (req.files && req.files.contract && req.files.contract[0]) {
-        const contractFile = req.files.contract[0];
-        const key = `contracts/${Date.now()}-${contractFile.originalname}`;
-        
-        const uploadResult = await uploadToS3(
-          contractFile.buffer,
-          key,
-          contractFile.originalname,
-          contractFile.mimetype,
-          false // Don't process PDFs as images
-        );
-        
-        contractKey = uploadResult.Key;
-        
-        // Delete old contract from S3 if it exists and is different
-        if (oldContractKey && oldContractKey !== contractKey) {
-          await deleteFromS3(oldContractKey);
-        }
-      }
-      
-      // Handle license PDF upload if new file exists
-      if (req.files && req.files.license && req.files.license[0]) {
-        const licenseFile = req.files.license[0];
-        const key = `licenses/${Date.now()}-${licenseFile.originalname}`;
-        
-        const uploadResult = await uploadToS3(
-          licenseFile.buffer,
-          key,
-          licenseFile.originalname,
-          licenseFile.mimetype,
-          false // Don't process PDFs as images
-        );
-        
-        licenseKey = uploadResult.Key;
-        
-        // Delete old license from S3 if it exists and is different
-        if (oldLicenseKey && oldLicenseKey !== licenseKey) {
-          await deleteFromS3(oldLicenseKey);
-        }
-      }
-      
-      // Update the user
-      const result = await promisePool.query(`
-        UPDATE users
-        SET name = $1, number = $2, role = $3, active = $4, region = $5, title = $6, 
-            contract_url = $7, email = $8, license_url = $9, id_card_number = $10, 
-            address = $11, contract_start_date = $12, contract_end_date = $13,
-            shift=$14
-        WHERE id = $15
-        RETURNING id, name, number, role, active, region, title, contract_url, email, 
-                  license_url, id_card_number, address, contract_start_date, contract_end_date
-      `, [name, number, role, active, region, title, contractKey, email, licenseKey, 
-          id_card_number, address, contract_start_date, contract_end_date,shift ,id]);
-      
-      if (result.rows.length === 0) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-      
-      const updatedUser = result.rows[0];
-      // Process CloudFront URLs for response
-      updatedUser.contract_url = updatedUser.contract_url ? getCloudFrontUrl(updatedUser.contract_url) : null;
-      updatedUser.license_url = updatedUser.license_url ? getCloudFrontUrl(updatedUser.license_url) : null;
-      
-      res.json(updatedUser);
-    } catch (error) {
-      console.error('Error updating user:', error);
-      res.status(500).json({ message: 'Server error', error: error.message });
+      const key = `banners/${uuidv4()}.webp`;
+      const result = await processAndUpload(req.file.buffer, key, { maxWidth: 1200, maxHeight: 600, quality: 90 });
+      image_url = result.url;
     }
-  });
-};
 
-
-// Change user password
-export const changeUserPassword = async (req, res) => {
-  const { id } = req.params;
-  const { password } = req.body;
-  
-  try {
-    // Hash the new password
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
-    // Update only the password
-    const result = await promisePool.query(`
-      UPDATE users
-      SET password = $1
-      WHERE id = $2
-      RETURNING id
-    `, [hashedPassword, id]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-    
-    res.json({ message: 'Password updated successfully' });
+    const { rows } = await promisePool.query(
+      `UPDATE banners SET product_id=$1, image_url=$2, sort_order=$3, active=$4
+       WHERE id=$5 RETURNING *`,
+      [
+        product_id || existing.rows[0].product_id,
+        image_url,
+        sort_order ?? existing.rows[0].sort_order,
+        active ?? existing.rows[0].active,
+        id
+      ]
+    );
+    res.json(rows[0]);
   } catch (error) {
-    console.error('Error changing password:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error updating banner:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 };
 
-// Delete a user
-export const deleteUser = async (req, res) => {
-  const { id } = req.params;
-  
+export const deleteBanner = async (req, res) => {
   try {
-    // First check if the user exists and get contract URL
-    const checkResult = await promisePool.query(
-      'SELECT id, contract_url FROM users WHERE id = $1',
-      [id]
-    );
-    
-    if (checkResult.rows.length === 0) {
-      return res.status(404).json({ message: 'User not found' });
+    const { rows } = await promisePool.query("SELECT image_url FROM banners WHERE id = $1", [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "Banner not found" });
+
+    if (rows[0].image_url) {
+      const key = rows[0].image_url.split(".com/")[1];
+      if (key) await deleteFromS3(key);
     }
-    
-    // Start a transaction
-    await promisePool.query('BEGIN');
-    
-    try {
-      // Option 1: Set replacement_user_id to NULL where this user is referenced
-      await promisePool.query(
-        'UPDATE vacations SET replacement_user_id = NULL WHERE replacement_user_id = $1',
-        [id]
-      );
-      
-      // Option 2 (alternative): Delete vacation records for this user
-      // await promisePool.query('DELETE FROM vacations WHERE user_id = $1', [id]);
-      
-      // Delete contract from S3 if it exists
-      const contractKey = checkResult.rows[0].contract_url;
-      if (contractKey) {
-        await deleteFromS3(contractKey);
-      }
-      
-      // Delete the user
-      await promisePool.query('DELETE FROM users WHERE id = $1', [id]);
-      
-      // Commit transaction
-      await promisePool.query('COMMIT');
-      
-      res.json({ message: 'User deleted successfully' });
-    } catch (err) {
-      // Rollback on error
-      await promisePool.query('ROLLBACK');
-      throw err;
-    }
+
+    await promisePool.query("DELETE FROM banners WHERE id = $1", [req.params.id]);
+    res.json({ message: "Banner deleted" });
   } catch (error) {
-    console.error('Error deleting user:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error deleting banner:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 };
 
 
-
-// backend/controllers/auth.controller.js
-// Add this function to your existing auth.controller.js
-
-export const updatePushToken = async (req, res) => {
+// Add this new function to your banner controllers
+export const reorderBanners = async (req, res) => {
+  const client = await promisePool.connect();
   try {
-    const userId = req.userId; // From your auth middleware
-    const { push_token, device_type } = req.body;
-
-    if (!push_token) {
-      return res.status(400).json({ message: "Push token is required" });
-    }
-
-    // Update user's push token
-    await promisePool.query(
-      `UPDATE users 
-       SET push_token = $1, device_type = $2 
-       WHERE id = $3`,
-      [push_token, device_type || 'ios', userId]
-    );
-
-    res.json({ 
-      message: "Push token updated successfully",
-      success: true 
-    });
-  } catch (error) {
-    console.error("Error updating push token:", error);
-    res.status(500).json({ 
-      message: "Failed to update push token",
-      error: error.message 
-    });
-  }
-};
-
-
-
-
-
-
-
-
-export const acceptUser = async (req, res) => {
-  const { userId } = req.params;
-  const { region, shift, contractStartDate } = req.body;
-
-  try {
-    // Validate shift value
-    if (shift !== 1 && shift !== 2) {
-      return res.status(400).json({ message: "Invalid shift value. Must be 1 or 2." });
-    }
-
-    // Update status, region, shift, and contract start date
-    await promisePool.query(
-      'UPDATE users SET status = true, region = $1, shift = $2, contract_start_date = $3 WHERE id = $4',
-      [region, shift, contractStartDate, userId]
-    );
-
-    res.status(200).json({ message: "User accepted successfully" });
-  } catch (error) {
-    console.log("Error in acceptUser controller", error.message);
-    res.status(500).json({ message: "Internal server error" });
-  }
-};
-
-
-export const getPendingUsers = async (req, res) => {
-  try {
-    const managerRegion = req.user.region;
-    const result = await promisePool.query(
-      `SELECT id, name, email, number, profile_image_url, region, created_at 
-       FROM users 
-       WHERE status = FALSE AND region = $1
-       ORDER BY created_at DESC`,
-      [managerRegion]
-    );
-    const users = result.rows.map(user => ({
-      ...user,
-      profile_image_url: user.profile_image_url 
-        ? getCloudFrontUrl(user.profile_image_url) 
-        : null
-    }));
-
-    res.status(200).json({ users });
-
-  } catch (error) {
-    console.log("Error in getPendingUsers controller", error.message);
-    res.status(500).json({ message: "Internal server error" });
-  }
-};
-
-
-
-
-
-export const getAllShiftRequests = async (req, res) => {
-  try {
-    // Base query
-    let query = `SELECT 
-        sr.id, 
-        sr.user_id, 
-        sr.requested_shift, 
-        sr.status, 
-        sr.created_at,
-        u.name,
-        u.email,
-        u.profile_image_url,
-        u.region
-      FROM shift_requests sr
-      JOIN users u ON sr.user_id = u.id`;
+    const { orderedIds } = req.body; // Expects an array of IDs: [5, 2, 8]
     
-    const queryParams = [];
+    await client.query('BEGIN');
     
-    // If user is a manager, filter by their region
-    if (req.user.role === 'manager') {
-      query += ` WHERE u.region = $1`;
-      queryParams.push(req.user.region);
-    }
-    
-    query += ` ORDER BY sr.created_at DESC`;
-
-    const result = await promisePool.query(query, queryParams);
-
-    const requests = result.rows.map(request => ({
-      ...request,
-      profile_image_url: request.profile_image_url 
-        ? getCloudFrontUrl(request.profile_image_url) 
-        : null
-    }));
-
-    // Classify requests by status
-    const classified = {
-      pending: requests.filter(r => r.status === 'pending'),
-      approved: requests.filter(r => r.status === 'approved'),
-      rejected: requests.filter(r => r.status === 'rejected')
-    };
-
-    res.status(200).json({ requests: classified });
-
-  } catch (error) {
-    console.log("Error in getAllShiftRequests controller", error.message);
-    res.status(500).json({ message: "Internal server error" });
-  }
-};
-
-// Update shift request status (approve or reject)
-// Update shift request status (approve or reject)
-export const updateShiftRequestStatus = async (req, res) => {
-  const { requestId } = req.params;
-  const { status } = req.body;
-
-  try {
-    if (!['approved', 'rejected'].includes(status)) {
-      return res.status(400).json({ message: "Invalid status. Must be 'approved' or 'rejected'" });
-    }
-
-    const requestCheck = await promisePool.query(
-      'SELECT sr.*, u.name FROM shift_requests sr JOIN users u ON sr.user_id = u.id WHERE sr.id = $1',
-      [requestId]
-    );
-
-    if (requestCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Shift request not found" });
-    }
-
-    if (requestCheck.rows[0].status !== 'pending') {
-      return res.status(400).json({ message: "This request has already been processed" });
-    }
-
-    const request = requestCheck.rows[0];
-
-    // Update shift request status
-    await promisePool.query(
-      'UPDATE shift_requests SET status = $1 WHERE id = $2',
-      [status, requestId]
-    );
-
-    // If approved, update the user's shift in the users table
-    if (status === 'approved') {
-      await promisePool.query(
-        'UPDATE users SET shift = $1 WHERE id = $2',
-        [request.requested_shift, request.user_id]
+    // Update the sort_order for each banner based on its index in the array
+    for (let i = 0; i < orderedIds.length; i++) {
+      await client.query(
+        'UPDATE banners SET sort_order = $1 WHERE id = $2',
+        [i, orderedIds[i]]
       );
     }
-
-    // Convert shift number to text
-    const shiftText = request.requested_shift == 1 ? 'paradites' : 'pasdites';
-
-    // Send notification
-    const title = status === 'approved' 
-      ? 'Kërkesa për ndryshim turni u pranua' 
-      : 'Kërkesa për ndryshim turni u refuzua';
     
-    const body = status === 'approved'
-      ? `Kërkesa juaj për ndryshim në turnin ${shiftText} eshte pranuar.`
-      : `Kërkesa juaj për ndryshim në turnin ${shiftText} eshte refuzuar.`;
-
-    await NotificationService.sendPushNotification(
-      request.user_id,
-      title,
-      body,
-      { type: 'shift_request', status, requestId }
-    );
-
-    res.status(200).json({ message: `Shift request ${status} successfully` });
-
+    await client.query('COMMIT');
+    res.json({ success: true, message: "Banners reordered successfully" });
   } catch (error) {
-    console.log("Error in updateShiftRequestStatus controller", error.message);
-    res.status(500).json({ message: "Internal server error" });
+    await client.query('ROLLBACK');
+    console.error("Error reordering banners:", error);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
   }
 };

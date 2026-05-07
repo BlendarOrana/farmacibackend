@@ -1,32 +1,47 @@
-import express from 'express';
-import { 
-  getAllUsers, 
-  getUserById, 
-  createUser, 
-  updateUser, 
-  changeUserPassword, 
-  getPendingUsers,
-  acceptUser,
-  getAllShiftRequests,
-  updateShiftRequestStatus,
-  deleteUser
-} from '../controllers/admin.controller.js';
+import express from "express";
+import multer from "multer";
 import { protectRoute, adminRoute } from "../middleware/auth.middleware.js";
+import {
+  getCategories, createCategory, deleteCategory,
+  getProducts, getProduct, createProduct, updateProduct, updateStock, deleteProduct,
+  getOrders, getOrder, updateOrderStatus,
+  getDashboardStats,
+  createBanner,
+updateBanner,
+deleteBanner,
+getBanners
+} from "../controllers/admin.controller.js";
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
-// User routes
-router.get('/users', protectRoute, adminRoute, getAllUsers);
-router.get('/users/pending', protectRoute, adminRoute, getPendingUsers);
-router.put('/users/:userId/accept', protectRoute, adminRoute, acceptUser);
-router.get('/users/:id', protectRoute, adminRoute, getUserById);
-router.post('/users', protectRoute, adminRoute, createUser);
-router.put('/users/:id', protectRoute, adminRoute, updateUser);
-router.patch('/users/:id/password', protectRoute, adminRoute, changeUserPassword);
-router.delete('/users/:id', protectRoute, adminRoute, deleteUser);
+// All admin routes require auth
+router.use(protectRoute, adminRoute);
 
-// Shift request routes (FIXED)
-router.get('/shift-requests', protectRoute, adminRoute, getAllShiftRequests);
-router.patch('/shift-requests/:requestId', protectRoute, adminRoute, updateShiftRequestStatus);
+// Dashboard
+router.get("/dashboard", getDashboardStats);
+
+// Categories
+router.get("/categories", getCategories);
+router.post("/categories", createCategory);
+router.delete("/categories/:id", deleteCategory);
+
+// Products
+router.get("/products", getProducts);
+router.get("/products/:id", getProduct);
+router.post("/products", upload.single("image"), createProduct);
+router.put("/products/:id", upload.single("image"), updateProduct);
+router.patch("/products/:id/stock", updateStock);
+router.delete("/products/:id", deleteProduct);
+
+router.get("/banners", getBanners);
+router.post("/banners", upload.single("image"), createBanner);
+router.put("/banners/:id", upload.single("image"), updateBanner);
+router.delete("/banners/:id", deleteBanner);
+
+// Orders
+router.get("/orders", getOrders);
+router.get("/orders/:id", getOrder);
+router.patch("/orders/:id/status", updateOrderStatus);
 
 export default router;
