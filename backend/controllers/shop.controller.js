@@ -1,44 +1,171 @@
 import { promisePool } from "../lib/db.js";
 
-// ─── PUBLIC PRODUCT BROWSING ──────────────────────────────────
 
-export const getPublicProducts = async (req, res) => {
-  const { category_id } = req.query;
 
-  let query = `
-    SELECT p.id, p.name, p.description, p.price, p.quantity, p.image_url, c.name AS category
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
-    WHERE p.quantity > 0
-  `;
-  const params = [];
-
-  if (category_id) {
-    params.push(category_id);
-    query += ` AND p.category_id = $${params.length}`;
-  }
-
-  query += " ORDER BY p.created_at DESC";
-  const { rows } = await promisePool.query(query, params);
-  res.json(rows);
-};
-
-export const getPublicProduct = async (req, res) => {
-  const { rows } = await promisePool.query(
-    `SELECT p.id, p.name, p.description, p.price, p.quantity, p.image_url, c.name AS category
-     FROM products p LEFT JOIN categories c ON p.category_id = c.id
-     WHERE p.id = $1`,
-    [req.params.id]
-  );
-  if (!rows.length) return res.status(404).json({ error: "Product not found" });
-  res.json(rows[0]);
-};
 
 export const getPublicCategories = async (req, res) => {
   const { rows } = await promisePool.query("SELECT * FROM categories ORDER BY name");
   res.json(rows);
 };
 
+// publicControllers.js
+const discountSelectLogic = `
+  p.id, p.name, p.description, p.price AS original_price, p.quantity, p.image_url, p.nutritional_info,
+  c.name AS category,
+  pd.discount_type, 
+  pd.discount_value, 
+  pd.end_date AS discount_end,
+  ROUND(
+    CAST(
+      CASE 
+        WHEN pd.id IS NOT NULL THEN 
+          CASE 
+            WHEN pd.discount_type = 'percentage' THEN p.price - (p.price * pd.discount_value / 100)
+            WHEN pd.discount_type = 'fixed' THEN p.price - pd.discount_value
+            ELSE p.price
+          END
+        ELSE p.price 
+      END 
+    AS NUMERIC), 2
+  ) AS current_price,
+  CASE WHEN pd.id IS NOT NULL THEN true ELSE false END AS is_discounted
+`;
+
+const discountJoinLogic = `
+  LEFT JOIN product_discounts pd 
+    ON p.id = pd.product_id 
+    AND pd.start_date <= CURRENT_TIMESTAMP 
+    AND pd.end_date >= CURRENT_TIMESTAMP
+`;
+
+export const getPublicCategoryProducts = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const page = parseInt(req.query.page, 10) || 1;
+    const offset = (page - 1) * limit;
+
+    const query = `
+      SELECT ${discountSelectLogic}
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      ${discountJoinLogic}
+      WHERE p.quantity > 0 AND p.category_id = $1
+      ORDER BY p.created_at DESC LIMIT $2 OFFSET $3
+    `;
+
+    const { rows } = await promisePool.query(query, [id, limit, offset]);
+    res.json(rows);
+  } catch (error) { 
+    console.error("Error in getPublicCategoryProducts:", error); 
+    res.status(500).json({ error: "Failed to fetch category products" }); 
+  }
+};
+
+export const getRelatedCategoryProducts = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { exclude } = req.query; // ID of the current product to exclude
+    const limit = 4; // Fetch exactly 4 products
+
+    // Using your exact discount logic variables
+    const query = `
+      SELECT ${discountSelectLogic}
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      ${discountJoinLogic}
+      WHERE p.quantity > 0 
+        AND p.category_id = $1 
+        AND p.id != $2
+      ORDER BY p.created_at DESC 
+      LIMIT $3
+    `;
+
+    const { rows } = await promisePool.query(query, [categoryId, exclude, limit]);
+    res.json(rows);
+  } catch (error) { 
+    console.error("Error in getRelatedCategoryProducts:", error); 
+    res.status(500).json({ error: "Failed to fetch related products" }); 
+  }
+};
+
+export const getPublicProducts = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const page = parseInt(req.query.page, 10) || 1;
+    const offset = (page - 1) * limit;
+
+    const query = `
+      SELECT ${discountSelectLogic}
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      ${discountJoinLogic}
+      WHERE p.quantity > 0
+      ORDER BY p.created_at DESC LIMIT $1 OFFSET $2
+    `;
+
+    const { rows } = await promisePool.query(query, [limit, offset]);
+    res.json(rows);
+  } catch (error) { 
+    console.error("Error in getPublicProducts:", error); 
+    res.status(500).json({ error: "Failed to fetch products" }); 
+  }
+};
+
+export const getPublicProductDetail = async (req, res) => {
+  try {
+    const { rows } = await promisePool.query(`
+      SELECT ${discountSelectLogic}
+      FROM products p 
+      LEFT JOIN categories c ON p.category_id = c.id
+      ${discountJoinLogic}
+      WHERE p.id = $1
+    `, [req.params.id]);
+
+    if (!rows.length) return res.status(404).json({ error: "Product not found" });
+    res.json(rows[0]);
+  } catch (error) {
+    console.error("Error in getPublicProductDetail:", error);
+    res.status(500).json({ error: "Failed to fetch product details" });
+  }
+};
+
+export const searchPublicProducts = async (req, res) => {
+  try {
+    const { q, category_id } = req.query;
+    
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const page = parseInt(req.query.page, 10) || 1;
+    const offset = (page - 1) * limit;
+
+    let query = `
+      SELECT ${discountSelectLogic}
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      ${discountJoinLogic}
+      WHERE p.quantity > 0
+    `;
+    const params = [];
+
+    if (q) {
+      params.push(`%${q}%`);
+      query += ` AND (p.name ILIKE $${params.length} OR p.description ILIKE $${params.length} OR c.name ILIKE $${params.length})`;
+    }
+    if (category_id) {
+      params.push(category_id);
+      query += ` AND p.category_id = $${params.length}`;
+    }
+
+    query += ` ORDER BY p.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limit, offset);
+
+    const { rows } = await promisePool.query(query, params);
+    res.json(rows);
+  } catch (error) { 
+    console.error("Error in searchPublicProducts:", error);
+    res.status(500).json({ error: "Failed to search products" }); 
+  }
+};
 
 
 // ─── BANNERS ─────────────────────────────────────────────────
@@ -61,65 +188,123 @@ export const getActiveBanners = async (req, res) => {
 
 // orderController.js ose shopController.js (vendi ku e ke këtë kod në backend)
 
-export const placeOrder = async (req, res) => {
-  const { customer_name, customer_email, phone_number, address, city, payment_type, items } = req.body;
+export const validateCoupon = async (req, res) => {
+  const { code, customer_name, cart_items } = req.body;
+  if (!code || !cart_items || !cart_items.length) return res.status(400).json({ error: "Missing required data" });
 
-  // Validate required fields
+  try {
+    const { rows } = await promisePool.query("SELECT * FROM coupons WHERE code = $1", [code.toUpperCase().trim()]);
+    if (!rows.length) return res.status(404).json({ error: "Kuponi nuk ekziston." });
+
+    const coupon = rows[0];
+
+    // 1. Basic Checks
+    if (!coupon.is_active) return res.status(400).json({ error: "Ky kupon nuk është aktiv." });
+    if (coupon.max_uses && coupon.used_count >= coupon.max_uses) return res.status(400).json({ error: "Ky kupon është përdorur në maksimum." });
+    if (coupon.valid_for_name && customer_name && coupon.valid_for_name.toLowerCase() !== customer_name.toLowerCase().trim()) {
+      return res.status(400).json({ error: "Ky kupon nuk vlen për emrin tuaj." });
+    }
+
+    // 2. Calculate how much of the cart is ELIGIBLE for the discount
+    let eligible_amount = 0;
+    
+    for (const item of cart_items) {
+      const prodRes = await promisePool.query("SELECT price FROM products WHERE id = $1", [item.product_id]);
+      if (prodRes.rows.length) {
+        const prod = prodRes.rows[0];
+        const itemTotal = parseFloat(prod.price) * item.quantity;
+        
+        // If product_ids array is empty/null, apply to ALL. Otherwise, apply ONLY if item is inside the array.
+        if (!coupon.product_ids || coupon.product_ids.length === 0 || coupon.product_ids.includes(item.product_id)) {
+          eligible_amount += itemTotal;
+        }
+      }
+    }
+
+    if (eligible_amount === 0) return res.status(400).json({ error: "Kuponi nuk vlen për asnjë nga produktet në shportën tuaj." });
+
+    // 3. Calculate exact discount money
+    let discount_amount = 0;
+    if (coupon.discount_type === 'percentage') discount_amount = eligible_amount * (parseFloat(coupon.discount_value) / 100);
+    if (coupon.discount_type === 'fixed') discount_amount = Math.min(eligible_amount, parseFloat(coupon.discount_value));
+
+    res.json({ valid: true, coupon, discount_amount });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const placeOrder = async (req, res) => {
+  const { customer_name, customer_email, phone_number, address, city, payment_type, items, coupon_code } = req.body;
+
   if (!customer_name || !customer_email || !phone_number || !address || !city || !payment_type || !items?.length) {
     return res.status(400).json({ error: "Të gjitha fushat dhe të paktën një produkt janë të detyrueshme" });
   }
-
-  // PRANON VETËM "ON_DELIVERY" OSE "CARD"
-  if (!["ON_DELIVERY", "CARD"].includes(payment_type)) {
-    return res.status(400).json({ error: "Mënyra e pagesës është e pavlefshme" });
-  }
+  if (!["ON_DELIVERY", "CARD"].includes(payment_type)) return res.status(400).json({ error: "Mënyra e pagesës është e pavlefshme" });
 
   const client = await promisePool.connect();
   try {
     await client.query("BEGIN");
 
     let total_amount = 0;
+    let eligible_discount_amount = 0;
     const enrichedItems = [];
+    let appliedCoupon = null;
 
-    for (const item of items) {
-      if (!item.product_id || !item.quantity || item.quantity < 1) {
-        throw new Error(`Invalid item: product_id and quantity are required`);
+    // Securely check Coupon on the backend again before placing order
+    if (coupon_code) {
+      const couponRes = await client.query("SELECT * FROM coupons WHERE code = $1 FOR UPDATE", [coupon_code.toUpperCase().trim()]);
+      if (couponRes.rows.length) {
+        const c = couponRes.rows[0];
+        if (c.is_active && (!c.max_uses || c.used_count < c.max_uses) && (!c.valid_for_name || c.valid_for_name.toLowerCase() === customer_name.toLowerCase().trim())) {
+          appliedCoupon = c; 
+        }
       }
-
-      const { rows } = await client.query(
-        "SELECT id, name, price, quantity FROM products WHERE id = $1 FOR UPDATE",
-        [item.product_id]
-      );
-
-      if (!rows.length) throw new Error(`Product ${item.product_id} not found`);
-      const product = rows[0];
-
-      if (product.quantity < item.quantity) {
-        throw new Error(`Nuk ka mjaftueshëm stok për "${product.name}" (në dispozicion: ${product.quantity})`);
-      }
-
-      total_amount += parseFloat(product.price) * item.quantity;
-      enrichedItems.push({ ...item, price: product.price });
     }
 
-    // Krijo porosinë
+    for (const item of items) {
+      if (!item.product_id || !item.quantity || item.quantity < 1) throw new Error(`Invalid item`);
+      
+      const { rows } = await client.query("SELECT id, name, price, quantity FROM products WHERE id = $1 FOR UPDATE", [item.product_id]);
+      if (!rows.length) throw new Error(`Product ${item.product_id} not found`);
+      
+      const product = rows[0];
+      if (product.quantity < item.quantity) throw new Error(`Nuk ka mjaftueshëm stok për "${product.name}"`);
+
+      const lineTotal = parseFloat(product.price) * item.quantity;
+      total_amount += lineTotal;
+      enrichedItems.push({ ...item, price: product.price });
+
+      // Sum eligible total for discount
+      if (appliedCoupon) {
+        if (!appliedCoupon.product_ids || appliedCoupon.product_ids.length === 0 || appliedCoupon.product_ids.includes(item.product_id)) {
+          eligible_discount_amount += lineTotal;
+        }
+      }
+    }
+
+    // Apply Exact Math
+    if (appliedCoupon && eligible_discount_amount > 0) {
+      let exactDiscount = 0;
+      if (appliedCoupon.discount_type === 'percentage') exactDiscount = eligible_discount_amount * (parseFloat(appliedCoupon.discount_value) / 100);
+      if (appliedCoupon.discount_type === 'fixed') exactDiscount = Math.min(eligible_discount_amount, parseFloat(appliedCoupon.discount_value));
+      
+      total_amount = Math.max(0, total_amount - exactDiscount);
+      await client.query("UPDATE coupons SET used_count = used_count + 1 WHERE id = $1", [appliedCoupon.id]);
+    }
+
+    // Create the order
     const orderResult = await client.query(
-      `INSERT INTO orders (customer_name, customer_email, phone_number, address, city, total_amount, payment_type, payment_status, order_status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING', 'NEW') RETURNING *`,
-      [customer_name, customer_email, phone_number, address, city, total_amount.toFixed(2), payment_type]
+      `INSERT INTO orders (customer_name, customer_email, phone_number, address, city, total_amount, payment_type, payment_status, order_status, applied_coupon)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING', 'NEW', $8) RETURNING *`,
+      [customer_name, customer_email, phone_number, address, city, total_amount.toFixed(2), payment_type, appliedCoupon ? appliedCoupon.code : null]
     );
     const order = orderResult.rows[0];
 
-    // Shto produktet e porosisë dhe zbrit stokun
+    // Deduct stock
     for (const item of enrichedItems) {
-      await client.query(
-        "INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase) VALUES ($1, $2, $3, $4)",
-        [order.id, item.product_id, item.quantity, item.price]
-      );
-      await client.query(
-        "UPDATE products SET quantity = quantity - $1 WHERE id = $2",
-        [item.quantity, item.product_id]
-      );
+      await client.query("INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase) VALUES ($1, $2, $3, $4)", [order.id, item.product_id, item.quantity, item.price]);
+      await client.query("UPDATE products SET quantity = quantity - $1 WHERE id = $2", [item.quantity, item.product_id]);
     }
 
     await client.query("COMMIT");
@@ -131,40 +316,4 @@ export const placeOrder = async (req, res) => {
     client.release();
   }
 };
-export const getOrderStatus = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { email } = req.query;
 
-    if (!email) return res.status(400).json({ error: "Email is required" });
-
-    const { rows } = await promisePool.query(
-      `SELECT 
-        o.id, 
-        o.order_status, 
-        o.payment_status, 
-        o.total_amount, 
-        o.created_at,
-        json_agg(json_build_object(
-          'product_name', p.name,
-          'quantity', oi.quantity,
-          'price', oi.price_at_purchase
-        )) AS items
-       FROM orders o
-       LEFT JOIN order_items oi ON o.id = oi.order_id
-       LEFT JOIN products p ON oi.product_id = p.id
-       WHERE o.id = $1 AND LOWER(o.customer_email) = LOWER($2)
-       GROUP BY o.id, o.order_status, o.payment_status, o.total_amount, o.created_at`, // 👈 FIXED GROUP BY
-      [id, email.trim()]
-    );
-
-    if (!rows.length) {
-      return res.status(404).json({ error: "Order not found" });
-    }
-
-    res.json(rows[0]);
-  } catch (error) {
-    console.error("Error fetching order:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};

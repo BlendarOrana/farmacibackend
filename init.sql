@@ -26,7 +26,7 @@ CREATE TABLE products (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. ORDERS TABLE (Updated for Paysera)
+-- 4. ORDERS TABLE (Updated for Card)
 CREATE TABLE orders (
     id SERIAL PRIMARY KEY,
     customer_name VARCHAR(255) NOT NULL,
@@ -34,10 +34,10 @@ CREATE TABLE orders (
     phone_number VARCHAR(50) NOT NULL,
     address TEXT NOT NULL,
     city VARCHAR(100) NOT NULL,
-    total_amount DECIMAL(10, 2) NOT NULL, -- IMPORTANT: Needed to verify Paysera payments
-    payment_type VARCHAR(50) NOT NULL,    -- Will be 'ON_DELIVERY' or 'PAYSERA'
+    total_amount DECIMAL(10, 2) NOT NULL, -- IMPORTANT: Needed to verify Card payments
+    payment_type VARCHAR(50) NOT NULL,    -- Will be 'ON_DELIVERY' or 'Card'
     payment_status VARCHAR(50) DEFAULT 'PENDING', -- 'PENDING', 'PAID', 'FAILED'
-    transaction_id VARCHAR(255),          -- Save the Paysera receipt number here
+    transaction_id VARCHAR(255),          -- Save the Card receipt number here
     order_status VARCHAR(50) DEFAULT 'NEW',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

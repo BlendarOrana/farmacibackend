@@ -9,7 +9,12 @@ import {
   createBanner,
 updateBanner,
 deleteBanner,
-getBanners
+getBanners,
+createBulkDiscount,
+removeBulkDiscount,
+createCoupon,
+getCoupons,
+
 } from "../controllers/admin.controller.js";
 
 const router = express.Router();
@@ -33,6 +38,15 @@ router.post("/products", upload.single("image"), createProduct);
 router.put("/products/:id", upload.single("image"), updateProduct);
 router.patch("/products/:id/stock", updateStock);
 router.delete("/products/:id", deleteProduct);
+router.post("/products/discounts/bulk", createBulkDiscount);
+router.post("/products/discounts/remove", removeBulkDiscount);
+
+router.post("/coupons", createCoupon);           // Admin uses this to create
+
+router.get("/coupons", getCoupons);
+
+
+
 
 router.get("/banners", getBanners);
 router.post("/banners", upload.single("image"), createBanner);

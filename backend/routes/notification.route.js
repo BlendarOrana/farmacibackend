@@ -1,43 +1,32 @@
-// routes/notification.route.js
 import express from 'express';
-import { protectRoute,adminRoute } from '../middleware/auth.middleware.js';
+import { protectRoute, adminRoute } from '../middleware/auth.middleware.js';
 import {
-  updateUserPushToken,
-  getUserNotifications,
-  markNotificationAsRead,
-  markAllNotificationsAsRead,
-  removeUserPushToken,
-  sendNotificationToUser,
-  getNotificationStats,
+  registerPushToken,
+  deactivatePushToken,
   sendNotificationToAll,
-  sendBatchNotifications,
-  sendNotificationByName
-
-  
+  getNotificationHistory,
+  getTokenStats
 } from '../controllers/notification.controller.js';
 
 const router = express.Router();
 
-router.post('/push-token', protectRoute, updateUserPushToken);
+// ==========================================
+// 📱 PUBLIC APP ROUTES (No Auth Required)
+// ==========================================
+// Called automatically when the app starts
+router.post('/register', registerPushToken);
 
-router.delete('/push-token', protectRoute, removeUserPushToken);
+// Called if user turns off notifications in app settings
+router.post('/deactivate', deactivatePushToken);
 
-// Matches GET /api/notifications
-router.get('/', protectRoute, getUserNotifications);
-
-// Matches PATCH /api/notifications/:id/read
-router.patch('/:id/read', protectRoute, markNotificationAsRead);
-
-// Matches PATCH /api/notifications/read-all
-router.patch('/read-all', protectRoute, markAllNotificationsAsRead);
-
-
-router.post('/send', protectRoute, adminRoute, sendNotificationToUser);
-
-router.post('/send-by-name', protectRoute, adminRoute, sendNotificationByName);
-router.post('/send-batch', protectRoute, adminRoute, sendBatchNotifications);
+// ==========================================
+// 💻 ADMIN DASHBOARD ROUTES (Auth Required)
+// ==========================================
+// Broadcast a notification to all devices
 router.post('/send-all', protectRoute, adminRoute, sendNotificationToAll);
-router.get('/stats', protectRoute, adminRoute, getNotificationStats);
 
+// View stats and history of sent notifications
+router.get('/history', protectRoute, adminRoute, getNotificationHistory);
+router.get('/stats', protectRoute, adminRoute, getTokenStats);
 
 export default router;

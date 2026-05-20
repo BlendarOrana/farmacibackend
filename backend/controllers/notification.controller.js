@@ -1,300 +1,187 @@
-// controllers/notification.controller.js
 import { promisePool } from '../lib/db.js';
 import NotificationService from '../services/notification.service.js';
 
 /**
- * Register or update the push token for the authenticated user.
+ * Register or update a device push token from the Mobile App
+ * No user account needed, completely anonymous!
  */
-export const updateUserPushToken = async (req, res) => {
+export const registerPushToken = async (req, res) => {
   try {
     const { push_token, platform } = req.body;
-    const userId = req.user.id;
 
     if (!push_token) {
       return res.status(400).json({ error: 'Push token is required' });
     }
 
-    const result = await NotificationService.updateUserPushToken(userId, push_token, platform);
+    await promisePool.query(
+      `INSERT INTO push_tokens (token, platform, active, last_seen_at)
+       VALUES ($1, $2, true, NOW())
+       ON CONFLICT (token) DO UPDATE 
+       SET active = true, last_seen_at = NOW(), platform = $2`,
+      [push_token, platform || null]
+    );
 
-    if (result.success) {
-      res.status(200).json({ message: 'Push token updated successfully' });
-    } else {
-      res.status(400).json({ error: result.error || 'Failed to update push token' });
-    }
+    res.status(200).json({ message: 'Token registered successfully' });
   } catch (error) {
-    console.error('Error in updateUserPushToken controller:', error);
+    console.error('Error registering push token:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 /**
- * Fetch all notifications for the authenticated user.
+ * Deactivate a token manually (if a user toggles off notifications in settings)
  */
-export const getUserNotifications = async (req, res) => {
+export const deactivatePushToken = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { limit = 50, offset = 0 } = req.query;
+    const { push_token } = req.body;
 
-    const result = await promisePool.query(
-      `SELECT id, title, body, data, is_read, created_at 
-       FROM notifications 
-       WHERE user_id = $1 
-       ORDER BY created_at DESC 
-       LIMIT $2 OFFSET $3`,
-      [userId, limit, offset]
+    if (!push_token) {
+      return res.status(400).json({ error: 'Push token is required' });
+    }
+
+    await promisePool.query(
+      `UPDATE push_tokens SET active = false WHERE token = $1`,
+      [push_token]
     );
 
-    const formattedNotifications = result.rows.map(n => ({
-      id: n.id,
-      type: n.data?.type || 'general',
-      title: n.title,
-      body: n.body,
-      is_read: n.is_read,
-      created_at: n.created_at,
-      product_id: n.data?.product_id,
-      product_name: n.data?.product_name,
-      product_status: n.data?.product_status,
-    }));
-
-    res.status(200).json(formattedNotifications);
+    res.status(200).json({ message: 'Token deactivated successfully' });
   } catch (error) {
-    console.error('Error fetching user notifications:', error);
+    console.error('Error deactivating push token:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * Send a notification to all active tokens (Admin Only)
+ * Can optionally link to a product_id or category_id
+ */
+export const sendNotificationToAll = async (req, res) => {
+  try {
+    const { 
+      title, 
+      body, 
+      product_id, 
+      category_id, 
+      include_image, // Boolean sent from your Admin Dashboard toggle
+      batchSize = 50, 
+      delayMs = 1000 
+    } = req.body;
+
+    if (!title || !body) {
+      return res.status(400).json({ error: 'Title and body are required' });
+    }
+
+    // 1. Prepare routing data for the mobile app
+    const pushData = {};
+
+    if (product_id) pushData.product_id = product_id;
+    if (category_id) pushData.category_id = category_id;
+
+    // 2. ONLY fetch and attach the image if the admin explicitly requested it AND a product is selected
+    if (include_image === true && product_id) {
+      const productRes = await promisePool.query(
+        'SELECT image_url FROM products WHERE id = $1',
+        [product_id]
+      );
+      
+      if (productRes.rows.length > 0 && productRes.rows[0].image_url) {
+        pushData.image_url = productRes.rows[0].image_url;
+      }
+    }
+
+    // 3. Send push via Expo
+    const result = await NotificationService.sendToAllTokens(
+      title,
+      body,
+      pushData,
+      batchSize,
+      delayMs
+    );
+
+    // 4. Save exactly what we broadcasted to the DB for history
+    await promisePool.query(
+      `INSERT INTO notifications (title, body, product_id, total_sent, total_failed)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [title, body, product_id || null, result.sentCount, result.failedCount]
+    );
+
+    res.status(200).json({
+      message: result.message,
+      stats: {
+        totalTokens: result.totalUsers,
+        sent: result.sentCount,
+        failed: result.failedCount,
+      }
+    });
+  } catch (error) {
+    console.error('Error sending notification:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+
+/**
+ * Get notification history for Admin Dashboard
+ */
+export const getNotificationHistory = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const offset = parseInt(req.query.offset, 10) || 0;
+
+    const { rows } = await promisePool.query(
+      `SELECT n.*, p.name AS product_name, p.image_url AS product_image
+       FROM notifications n
+       LEFT JOIN products p ON n.product_id = p.id
+       ORDER BY n.sent_at DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+
+    res.status(200).json(rows);
+  } catch (error) {
+    console.error('Error fetching notification history:', error);
     res.status(500).json({ error: 'Failed to fetch notifications' });
   }
 };
 
 /**
- * Mark a single notification as read.
+ * Get token stats for Admin Dashboard
  */
-export const markNotificationAsRead = async (req, res) => {
+export const getTokenStats = async (req, res) => {
   try {
-    const { id } = req.params;
-    const userId = req.user.id;
+    const { rows } = await promisePool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE active = true) AS active_tokens,
+        COUNT(*) FILTER (WHERE active = false) AS inactive_tokens,
+        COUNT(*) FILTER (WHERE platform = 'ios' AND active = true) AS ios_tokens,
+        COUNT(*) FILTER (WHERE platform = 'android' AND active = true) AS android_tokens
+      FROM push_tokens
+    `);
 
-    if (!id) {
-      return res.status(400).json({ error: 'Notification ID is required' });
-    }
-
-    const result = await promisePool.query(
-      'UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2',
-      [id, userId]
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: 'Notification not found or user not authorized' });
-    }
-
-    res.status(200).json({ message: 'Notification marked as read' });
+    res.status(200).json(rows[0]);
   } catch (error) {
-    console.error('Error marking notification as read:', error);
-    res.status(500).json({ error: 'Failed to update notification' });
-  }
-};
-
-/**
- * Mark all unread notifications as read for the authenticated user.
- */
-export const markAllNotificationsAsRead = async (req, res) => {
-  try {
-    const userId = req.user.id;
-
-    await promisePool.query(
-      'UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false',
-      [userId]
-    );
-
-    res.status(200).json({ message: 'All notifications marked as read' });
-  } catch (error) {
-    console.error('Error marking all notifications as read:', error);
-    res.status(500).json({ error: 'Failed to update notifications' });
-  }
-};
-
-/**
- * Removes the push token for a user, typically on logout.
- */
-export const removeUserPushToken = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    await NotificationService.removeUserPushToken(userId);
-    res.status(200).json({ message: 'Push token removed successfully' });
-  } catch (error) {
-    console.error('Error removing push token:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-/**
- * Send notification to a single user by ID
- */
-export const sendNotificationToUser = async (req, res) => {
-  try {
-    const { userId, title, body, data } = req.body;
-
-    if (!userId || !title || !body) {
-      return res.status(400).json({ error: 'userId, title, and body are required' });
-    }
-
-    const result = await NotificationService.sendPushNotification(userId, title, body, data);
-
-    if (result.success) {
-      res.status(200).json({ message: 'Notification sent successfully!' });
-    } else {
-      res.status(404).json({ error: result.message || 'Failed to send notification' });
-    }
-  } catch (error) {
-    console.error('Error in sendNotificationToUser controller:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-/**
- * Send notification to a user by their name
- */
-export const sendNotificationByName = async (req, res) => {
-  try {
-    const { userName, title, body, data } = req.body;
-
-    if (!userName || !title || !body) {
-      return res.status(400).json({ error: 'userName, title, and body are required' });
-    }
-
-    const result = await NotificationService.sendPushNotificationByName(userName, title, body, data);
-
-    if (result.success) {
-      res.status(200).json({ message: 'Notification sent successfully!' });
-    } else {
-      res.status(404).json({ error: result.message || 'Failed to send notification' });
-    }
-  } catch (error) {
-    console.error('Error in sendNotificationByName controller:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-/**
- * Send batch notifications to users by role or region
- */
-export const sendBatchNotifications = async (req, res) => {
-  try {
-    const { role, region, title, body, data, batchSize = 50, delayMs = 1000 } = req.body;
-
-    if (!title || !body) {
-      return res.status(400).json({ error: 'title and body are required' });
-    }
-
-    if (!role && !region) {
-      return res.status(400).json({ error: 'Either role or region must be specified' });
-    }
-
-    const filter = {};
-    if (role) filter.role = role;
-    if (region) filter.region = region;
-
-    const result = await NotificationService.sendBatchNotifications(
-      filter,
-      title,
-      body,
-      data,
-      batchSize,
-      delayMs
-    );
-
-    if (result.success) {
-      res.status(200).json({
-        message: result.message,
-        stats: {
-          totalUsers: result.totalUsers,
-          sentCount: result.sentCount,
-          failedCount: result.failedCount,
-          failedUsers: result.failedUsers
-        }
-      });
-    } else {
-      res.status(result.totalUsers === 0 ? 404 : 207).json({
-        error: result.message,
-        stats: {
-          totalUsers: result.totalUsers,
-          sentCount: result.sentCount,
-          failedCount: result.failedCount,
-          failedUsers: result.failedUsers
-        }
-      });
-    }
-  } catch (error) {
-    console.error('Error in sendBatchNotifications controller:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error fetching token stats:', error);
+    res.status(500).json({ error: 'Failed to fetch stats' });
   }
 };
 
 
-export const sendNotificationToAll = async (req, res) => {
-  try {
 
-    const { title, body, data, batchSize, delayMs } = req.body;
 
-    if (!title || !body) {
-      return res.status(400).json({ error: 'title and body are required' });
-    }
 
-    const result = await NotificationService.sendToAllUsers(
-      title,
-      body,
-      data,
-      batchSize,
-      delayMs
-    );
 
-    if (result.success) {
-      res.status(200).json({
-        message: result.message,
-        stats: {
-          totalUsers: result.totalUsers,
-          sentCount: result.sentCount,
-          failedCount: result.failedCount,
-          failedUsers: result.failedUsers
-        }
-      });
-    } else {
-      res.status(result.totalUsers === 0 ? 404 : 207).json({
-        error: result.message,
-        stats: {
-          totalUsers: result.totalUsers,
-          sentCount: result.sentCount,
-          failedCount: result.failedCount,
-          failedUsers: result.failedUsers
-        }
-      });
-    }
-  } catch (error) {
-    console.error('Error in sendNotificationToAll controller:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
 
-/**
- * Get notification statistics for admin dashboard
- */
-export const getNotificationStats = async (req, res) => {
-  try {
-    const statsQuery = `
-      SELECT 
-        COUNT(DISTINCT u.id) as total_users,
-        COUNT(DISTINCT CASE WHEN u.push_token IS NOT NULL THEN u.id END) as users_with_tokens,
-        COUNT(DISTINCT n.id) as total_notifications,
-        COUNT(DISTINCT CASE WHEN n.is_read = false THEN n.id END) as unread_notifications
-      FROM users u
-      LEFT JOIN notifications n ON u.id = n.user_id
-      WHERE u.active = true
-    `;
 
-    const result = await promisePool.query(statsQuery);
 
-    res.status(200).json({
-      stats: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Error fetching notification stats:', error);
-    res.status(500).json({ error: 'Failed to fetch statistics' });
-  }
-};
+
+
+
+
+
+
+
+
+
+
+
+

@@ -34,26 +34,7 @@ export default function DashboardLayout({ children, activePage, onNavigate }) {
       <div className="flex-1 flex flex-col min-w-0 h-full relative">
         
         {/* Top Header */}
-        <header className="h-16 bg-base-100 border-b border-base-200 px-4 md:px-8 flex items-center justify-between shrink-0 z-10">
-          <div className="flex items-center gap-4">
-            <button 
-              className="lg:hidden p-2 -ml-2 text-base-content/70 hover:text-base-content hover:bg-base-200 rounded-md transition-colors"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <Menu size={20} />
-            </button>
-            <h1 className="text-xl font-bold tracking-tight hidden sm:block">
-              {pageTitle}
-            </h1>
-          </div>
 
-          <div className="flex items-center gap-2 sm:gap-4">
-            {/* Search Bar */}
-     
-            
-     
-          </div>
-        </header>
 
         {/* Dynamic Page Content */}
         <main className="flex-1 p-4 md:p-8 overflow-y-auto">

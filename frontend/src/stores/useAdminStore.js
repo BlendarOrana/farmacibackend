@@ -1,25 +1,19 @@
 import { create } from "zustand";
 import axiosInstance from "../lib/axios";
 
-const api = {
-  get:    (url, config)       => axiosInstance.get(`/admin${url}`, config),
-  post:   (url, data, config) => axiosInstance.post(`/admin${url}`, data, config),
-  put:    (url, data, config) => axiosInstance.put(`/admin${url}`, data, config),
-  patch:  (url, data)         => axiosInstance.patch(`/admin${url}`, data),
-  delete: (url)               => axiosInstance.delete(`/admin${url}`),
-};
-
 export const useAdminStore = create((set, get) => ({
   // ─── Dashboard ───────────────────────────────────────────────
   stats: null,
   statsLoading: false,
   banners: [],
   bannersLoading: false,
+coupons: [],
+couponsLoading: false,
 
- fetchBanners: async () => {
+  fetchBanners: async () => {
     set({ bannersLoading: true });
     try {
-      const { data } = await api.get("/banners");
+      const { data } = await axiosInstance.get("/admin/banners");
       set({ banners: data, bannersLoading: false });
     } catch (_) {
       set({ bannersLoading: false });
@@ -28,39 +22,38 @@ export const useAdminStore = create((set, get) => ({
 
   createBanner: async (formData) => {
     try {
-      const { data } = await api.post("/banners", formData, {
+      const { data } = await axiosInstance.post("/admin/banners", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       set((s) => ({ banners: [data, ...s.banners] }));
       return { success: true };
     } catch (err) {
-      return { success: false, message: err.response?.data?.error || "Failed" };
+      return { success: false, message: err.response?.data?.error || "Failed to create banner" };
     }
   },
 
   deleteBanner: async (id) => {
     try {
-      await api.delete(`/banners/${id}`);
+      await axiosInstance.delete(`/admin/banners/${id}`);
       set((s) => ({ banners: s.banners.filter((b) => b.id !== id) }));
       return { success: true };
     } catch (err) {
-      return { success: false, message: err.response?.data?.error || "Failed" };
+      return { success: false, message: err.response?.data?.error || "Failed to delete banner" };
     }
   },
 
-
   reorderBanners: async (orderedIds) => {
-  try {
-    await axios.post('/api/banners/reorder', { orderedIds });
-    get().fetchBanners(); // Refresh list to ensure sync
-  } catch (error) {
-    console.error("Failed to reorder", error);
-  }
-},
+    try {
+      await axiosInstance.post("/admin/banners/reorder", { orderedIds });
+      get().fetchBanners(); // Refresh list to ensure sync
+    } catch (error) {
+      console.error("Failed to reorder", error);
+    }
+  },
 
   updateBannerToggle: async (id, active) => {
     try {
-      const { data } = await api.put(`/banners/${id}`, { active });
+      const { data } = await axiosInstance.put(`/admin/banners/${id}`, { active });
       set((s) => ({
         banners: s.banners.map((b) => (b.id === id ? data : b)),
       }));
@@ -70,16 +63,10 @@ export const useAdminStore = create((set, get) => ({
     }
   },
 
-
-
-
-
-
-
   fetchStats: async () => {
     set({ statsLoading: true });
     try {
-      const { data } = await api.get("/dashboard");
+      const { data } = await axiosInstance.get("/admin/dashboard");
       set({ stats: data, statsLoading: false });
     } catch (_) {
       set({ statsLoading: false });
@@ -93,7 +80,7 @@ export const useAdminStore = create((set, get) => ({
   fetchCategories: async () => {
     set({ categoriesLoading: true });
     try {
-      const { data } = await api.get("/categories");
+      const { data } = await axiosInstance.get("/admin/categories");
       set({ categories: data, categoriesLoading: false });
     } catch (_) {
       set({ categoriesLoading: false });
@@ -102,21 +89,21 @@ export const useAdminStore = create((set, get) => ({
 
   createCategory: async (name) => {
     try {
-      const { data } = await api.post("/categories", { name });
+      const { data } = await axiosInstance.post("/admin/categories", { name });
       set((s) => ({ categories: [...s.categories, data] }));
       return { success: true };
     } catch (err) {
-      return { success: false, message: err.response?.data?.error || "Failed" };
+      return { success: false, message: err.response?.data?.error || "Failed to create category" };
     }
   },
 
   deleteCategory: async (id) => {
     try {
-      await api.delete(`/categories/${id}`);
+      await axiosInstance.delete(`/admin/categories/${id}`);
       set((s) => ({ categories: s.categories.filter((c) => c.id !== id) }));
       return { success: true };
     } catch (err) {
-      return { success: false, message: err.response?.data?.error || "Failed" };
+      return { success: false, message: err.response?.data?.error || "Failed to delete category" };
     }
   },
 
@@ -128,7 +115,7 @@ export const useAdminStore = create((set, get) => ({
   fetchProducts: async () => {
     set({ productsLoading: true });
     try {
-      const { data } = await api.get("/products");
+      const { data } = await axiosInstance.get("/admin/products");
       set({ products: data, productsLoading: false });
     } catch (_) {
       set({ productsLoading: false });
@@ -137,7 +124,7 @@ export const useAdminStore = create((set, get) => ({
 
   fetchProduct: async (id) => {
     try {
-      const { data } = await api.get(`/products/${id}`);
+      const { data } = await axiosInstance.get(`/admin/products/${id}`);
       set({ selectedProduct: data });
       return data;
     } catch (err) {
@@ -147,7 +134,7 @@ export const useAdminStore = create((set, get) => ({
 
   createProduct: async (formData) => {
     try {
-      const { data } = await api.post("/products", formData, {
+      const { data } = await axiosInstance.post("/admin/products", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       set((s) => ({ products: [data, ...s.products] }));
@@ -159,7 +146,7 @@ export const useAdminStore = create((set, get) => ({
 
   updateProduct: async (id, formData) => {
     try {
-      const { data } = await api.put(`/products/${id}`, formData, {
+      const { data } = await axiosInstance.put(`/admin/products/${id}`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       set((s) => ({
@@ -174,7 +161,7 @@ export const useAdminStore = create((set, get) => ({
 
   updateStock: async (id, quantity) => {
     try {
-      const { data } = await api.patch(`/products/${id}/stock`, { quantity });
+      const { data } = await axiosInstance.patch(`/admin/products/${id}/stock`, { quantity });
       set((s) => ({
         products: s.products.map((p) => (p.id === id ? { ...p, quantity: data.quantity } : p)),
       }));
@@ -186,11 +173,34 @@ export const useAdminStore = create((set, get) => ({
 
   deleteProduct: async (id) => {
     try {
-      await api.delete(`/products/${id}`);
+      await axiosInstance.delete(`/admin/products/${id}`);
       set((s) => ({ products: s.products.filter((p) => p.id !== id) }));
       return { success: true };
     } catch (err) {
       return { success: false, message: err.response?.data?.error || "Failed to delete product" };
+    }
+  },
+
+  // Logjika e re e integruar me axiosInstance
+  applyBulkDiscount: async (payload) => {
+    try {
+      const { data } = await axiosInstance.post("/admin/products/discounts/bulk", payload);
+      get().fetchProducts(); // Rifresko produktet për të parë çmimet e reja
+      return { success: true, message: data.message };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || "Network error" };
+    }
+  },
+
+
+  // Hiq zbritjet në formë grupore (Bulk Remove)
+  removeBulkDiscount: async (product_ids) => {
+    try {
+      const { data } = await axiosInstance.post("/admin/products/discounts/remove", { product_ids });
+      get().fetchProducts(); // Rifresko produktet për të parë çmimet kthyera në normale
+      return { success: true, message: data.message };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || "Network error" };
     }
   },
 
@@ -206,7 +216,7 @@ export const useAdminStore = create((set, get) => ({
       const params = new URLSearchParams();
       if (filters.status) params.append("status", filters.status);
       if (filters.payment_status) params.append("payment_status", filters.payment_status);
-      const { data } = await api.get(`/orders?${params.toString()}`);
+      const { data } = await axiosInstance.get(`/admin/orders?${params.toString()}`);
       set({ orders: data, ordersLoading: false, orderFilters: filters });
     } catch (_) {
       set({ ordersLoading: false });
@@ -215,7 +225,7 @@ export const useAdminStore = create((set, get) => ({
 
   fetchOrder: async (id) => {
     try {
-      const { data } = await api.get(`/orders/${id}`);
+      const { data } = await axiosInstance.get(`/admin/orders/${id}`);
       set({ selectedOrder: data });
       return data;
     } catch (_) {
@@ -225,7 +235,7 @@ export const useAdminStore = create((set, get) => ({
 
   updateOrderStatus: async (id, updates) => {
     try {
-      const { data } = await api.patch(`/orders/${id}/status`, updates);
+      const { data } = await axiosInstance.patch(`/admin/orders/${id}/status`, updates);
       set((s) => ({
         orders: s.orders.map((o) => (o.id === id ? { ...o, ...data } : o)),
         selectedOrder: s.selectedOrder?.id === id ? { ...s.selectedOrder, ...data } : s.selectedOrder,
@@ -238,4 +248,39 @@ export const useAdminStore = create((set, get) => ({
 
   setSelectedOrder: (order) => set({ selectedOrder: order }),
   setSelectedProduct: (product) => set({ selectedProduct: product }),
+
+
+
+
+
+fetchCoupons: async () => {
+  set({ couponsLoading: true });
+
+  try {
+    const { data } = await axiosInstance.get("/admin/coupons");
+
+    set({ coupons: data });
+  } catch (err) {
+    console.error(err);
+  } finally {
+    set({ couponsLoading: false });
+  }
+},
+
+createCoupon: async (payload) => {
+  try {
+    const { data } = await axiosInstance.post("/admin/coupons", payload);
+
+    set((state) => ({
+      coupons: [data, ...state.coupons],
+    }));
+
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      message: err.response?.data?.error || "Failed to create coupon",
+    };
+  }
+},
 }));
