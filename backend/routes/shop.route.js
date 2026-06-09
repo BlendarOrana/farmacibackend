@@ -9,7 +9,8 @@ import {
   searchPublicProducts,
   getRelatedCategoryProducts,
   validateCoupon,
-
+getUserCoupons,
+markCouponAsRead
 } from "../controllers/shop.controller.js";
 
 const router = express.Router();
@@ -23,6 +24,9 @@ router.get('/categories/:categoryId/related', getRelatedCategoryProducts);
 
 
 
+
+router.get("/coupons/my-coupons", getUserCoupons);
+router.patch("/coupons/:id/read", markCouponAsRead);
 
 router.post("/coupons/validate", validateCoupon); // App uses this to check validity
 router.post("/orders", placeOrder);

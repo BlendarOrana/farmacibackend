@@ -11,8 +11,7 @@ import {
 const router = express.Router();
 
 // ==========================================
-// 📱 PUBLIC APP ROUTES (No Auth Required)
-// ==========================================
+
 // Called automatically when the app starts
 router.post('/register', registerPushToken);
 

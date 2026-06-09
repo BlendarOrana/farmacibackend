@@ -14,7 +14,7 @@ createBulkDiscount,
 removeBulkDiscount,
 createCoupon,
 getCoupons,
-
+getCustomersForCoupons
 } from "../controllers/admin.controller.js";
 
 const router = express.Router();
@@ -44,6 +44,8 @@ router.post("/products/discounts/remove", removeBulkDiscount);
 router.post("/coupons", createCoupon);           // Admin uses this to create
 
 router.get("/coupons", getCoupons);
+router.get("/customers-for-coupons", getCustomersForCoupons);
+
 
 
 

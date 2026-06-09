@@ -132,7 +132,7 @@ export default function ProductsTable({ products, isLoading, onEdit, onStock, on
               const originalPrice = parseFloat(p.price);
 
               const discountPercent = isPromo && p.discount_type === "percentage"
-                  ? p.discount_value
+                  ? Number(p.discount_value)
                   : isPromo
                   ? Math.round(((originalPrice - currentPrice) / originalPrice) * 100)
                   : 0;
@@ -182,7 +182,7 @@ export default function ProductsTable({ products, isLoading, onEdit, onStock, on
                         {/* UI PËR TË TREGUAR DITËT E MBETURA DHE LLOJIN E ZBRITJES */}
                         <div className="flex items-center gap-1 text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md w-max border border-orange-100">
                            <Clock size={10} /> 
-                           {p.discount_type === 'fixed' ? `- €${p.discount_value}` : `${p.discount_value}%`} • {daysLeft} Ditë të mbetura
+                           {p.discount_type === 'fixed' ? `- €${Number(p.discount_value)}` : `${Number(p.discount_value)}%`} • {daysLeft} Ditë të mbetura
                         </div>
                       </div>
                     ) : (

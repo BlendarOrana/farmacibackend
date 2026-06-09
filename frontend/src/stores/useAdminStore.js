@@ -10,6 +10,23 @@ export const useAdminStore = create((set, get) => ({
 coupons: [],
 couponsLoading: false,
 
+
+  customers: [],
+  customersLoading: false,
+
+
+
+  
+  fetchCustomersForCoupons: async () => {
+    set({ customersLoading: true });
+    try {
+      const { data } = await axiosInstance.get("/admin/customers-for-coupons"); // Ensure this matches your admin routes
+      set({ customers: data, customersLoading: false });
+    } catch (err) {
+      set({ customersLoading: false });
+    }
+  },
+
   fetchBanners: async () => {
     set({ bannersLoading: true });
     try {
@@ -204,24 +221,46 @@ couponsLoading: false,
     }
   },
 
-  // ─── Orders ──────────────────────────────────────────────────
-  orders: [],
-  ordersLoading: false,
-  selectedOrder: null,
-  orderFilters: { status: "", payment_status: "" },
 
-  fetchOrders: async (filters = {}) => {
-    set({ ordersLoading: true });
+
+orders: [],
+  ordersLoading: false,
+  ordersFetchingMore: false, // Loading state specifik për infinite scroll
+  hasMoreOrders: true,       // Tregon nëse ka akoma porosi për t'u shkarkuar
+  selectedOrder: null,
+  orderFilters: { status: "", payment_status: "", payment_type: "" },
+
+  fetchOrders: async (filters = {}, page = 1) => {
+    if (page === 1) {
+      set({ ordersLoading: true });
+    } else {
+      set({ ordersFetchingMore: true });
+    }
+
     try {
       const params = new URLSearchParams();
       if (filters.status) params.append("status", filters.status);
       if (filters.payment_status) params.append("payment_status", filters.payment_status);
+      if (filters.payment_type) params.append("payment_type", filters.payment_type); // FIKSUAR
+      
+      params.append("page", page);
+      params.append("limit", 20); // Ndryshoje sipas dëshirës
+
       const { data } = await axiosInstance.get(`/admin/orders?${params.toString()}`);
-      set({ orders: data, ordersLoading: false, orderFilters: filters });
+      
+      set((state) => ({
+        // Nëse është faqja 1, zëvendëso listën. Ndryshe bashko listën e vjetër me të rejat
+        orders: page === 1 ? data : [...state.orders, ...data],
+        ordersLoading: false,
+        ordersFetchingMore: false,
+        hasMoreOrders: data.length === 20, // Nëse na kthehen 20, me siguri ka akoma
+        orderFilters: filters
+      }));
     } catch (_) {
-      set({ ordersLoading: false });
+      set({ ordersLoading: false, ordersFetchingMore: false });
     }
   },
+
 
   fetchOrder: async (id) => {
     try {

@@ -5,6 +5,7 @@ import {
   Bell, Send, Smartphone, Info, AlertCircle, 
   Users, Apple, History, Lock, Flashlight, Camera, X
 } from "lucide-react";
+import IphoneMockup from "./IphoneMockup"; // Rregullo rrugen e importit nese duhet
 
 export default function NotificationsPanel() {
   const { 
@@ -71,43 +72,50 @@ export default function NotificationsPanel() {
       )}
 
       {/* Shiriti i Statistikave */}
-<div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-  <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3">
-    <div className="w-10 h-10 bg-orange-50 text-[#f68048] rounded-full flex items-center justify-center">
-      <Users size={18} strokeWidth={2.2} />
-    </div>
-    <div>
-      <p className="text-xs font-medium text-gray-500">Pajisje Aktive</p>
-      <h3 className="text-lg font-bold text-gray-900">
-        {stats.active_tokens || 0}
-      </h3>
-    </div>
-  </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3">
+          <div className="w-10 h-10 bg-orange-50 text-[#f68048] rounded-full flex items-center justify-center">
+            <Users size={18} strokeWidth={2.2} />
+          </div>
+          <div>
+            <p className="text-xs font-medium text-gray-500">Pajisje Aktive</p>
+            <h3 className="text-lg font-bold text-gray-900">
+              {stats.active_tokens || 0}
+            </h3>
+          </div>
+        </div>
 
-  <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3">
-    <div className="w-10 h-10 bg-gray-50 text-gray-800 rounded-full flex items-center justify-center">
-      <Apple size={18} strokeWidth={2.2} />
-    </div>
-    <div>
-      <p className="text-xs font-medium text-gray-500">Perdorues iOS</p>
-      <h3 className="text-lg font-bold text-gray-900">
-        {stats.ios_tokens || 0}
-      </h3>
-    </div>
-  </div>
-
-  <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3">
-    <div className="w-10 h-10 bg-green-50 text-green-600 rounded-full flex items-center justify-center">
-      <Smartphone size={18} strokeWidth={2.2} />
-    </div>
-    <div>
-      <p className="text-xs font-medium text-gray-500">Perdorues Android</p>
-      <h3 className="text-lg font-bold text-gray-900">
-        {stats.android_tokens || 0}
-      </h3>
-    </div>
-  </div>
+        <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3">
+          <div className="w-10 h-10 bg-gray-50 text-gray-800 rounded-full flex items-center justify-center">
+            <Apple size={18} strokeWidth={2.2} />
+          </div>
+          <div>
+            <p className="text-xs font-medium text-gray-500">Perdorues iOS</p>
+            <h3 className="text-lg font-bold text-gray-900">
+              {stats.ios_tokens || 0}
+            </h3>
+          </div>
+           <div className="w-10 h-10 bg-green-50 text-green-600 rounded-full flex items-center justify-center">
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 512 512"
+    width={18}
+    height={18}
+    fill="currentColor"
+  >
+    <path d="M380.91,199l42.47-73.57a8.63,8.63,0,0,0-3.12-11.76,8.52,8.52,0,0,0-11.71,3.12l-43,74.52c-32.83-15-69.78-23.35-109.52-23.35s-76.69,8.36-109.52,23.35l-43-74.52a8.6,8.6,0,1,0-14.88,8.64L131,199C57.8,238.64,8.19,312.77,0,399.55H512C503.81,312.77,454.2,238.64,380.91,199ZM138.45,327.65a21.46,21.46,0,1,1,21.46-21.46A21.47,21.47,0,0,1,138.45,327.65Zm235,0A21.46,21.46,0,1,1,395,306.19,21.47,21.47,0,0,1,373.49,327.65Z" />
+  </svg>
 </div>
+          <div>
+            <p className="text-xs font-medium text-gray-500">Perdorues Android</p>
+            <h3 className="text-lg font-bold text-gray-900">
+              {stats.android_tokens || 0}
+            </h3>
+          </div>
+        </div>
+
+     
+      </div>
 
       {/* Rrjeti Kryesor: Formulari & Preview */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -115,7 +123,6 @@ export default function NotificationsPanel() {
         {/* Majtas: Formulari */}
         <div className="lg:col-span-7 bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm flex flex-col gap-5">
           <div className="flex items-center gap-3 mb-2">
-  
             <div>
               <h2 className="text-xl font-bold text-gray-900 tracking-tight">Krijo Njoftim</h2>
             </div>
@@ -198,75 +205,49 @@ export default function NotificationsPanel() {
           </button>
         </div>
 
-        {/* Djathtas: Prezantimi Live (Mockup i EKRANIT Te KYÇUR iOS 17/18) */}
-        <div className="lg:col-span-5 flex justify-center     ">
-          <div className="relative w-[320px] h-[660px] bg-black rounded-[50px]  p-[10px] flex-shrink-0">
-            
-            {/* Ekrani i brendshem */}
-            <div className="relative w-full h-full bg-[#fcee0d] rounded-[38px] overflow-hidden">
-              
-              {/* Imazhi i sfondit (Erresuar pak per te nxjerre ne pah tekstin e bardhe si ne screenshot) */}
-              <div className="absolute inset-0 bg-[url('/hunters.webp')] bg-contain bg-center bg-no-repeat"></div>
-              
-              {/* Dynamic Island me Ikonen e Kyçit */}
-                    <div className="absolute top-2.5 inset-x-0 flex justify-center z-20">
-                <div className="w-[120px] h-[34px] bg-black rounded-full shadow-sm"></div>
-
-              </div>
-
- 
-
-   
-              {/* Njoftimi Kompakt (Si ne foton tende - Poshte, i gjere dhe i holle) */}
-              <div className="absolute top-[60px] left-[12px] right-[12px] z-10 animate-in slide-in-from-bottom-4 fade-in duration-500">
-                <div className="bg-[#2c2c2e]/60 backdrop-blur-2xl rounded-[24px] p-[12px] shadow-[0_8px_30px_rgb(0,0,0,0.3)] border border-white/10 flex items-center gap-3">
-                  
-                  {/* Imazhi / Ikona e App-it (E vogel, 38x38) */}
-                  <div className="flex-shrink-0">
-                    <img 
-                      src="/adaptive-icon.png" 
-                      alt="App Icon" 
-                      className="w-[38px] h-[38px] rounded-[10px] object-cover bg-white shadow-sm"
-                    />
-                  </div>
-
-                  {/* Teksti (Titulli + Koha ne nje rresht, Trupi poshte) */}
-                  <div className="flex-1 min-w-0 flex flex-col justify-center">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-[14px] font-semibold text-white truncate">
-                        {title || "Titulli"}
-                      </h4>
-     
-                    </div>
-                    <p className="text-[13px] font-normal text-white/80 mt-[2px] leading-snug line-clamp-1">
-                      {body || "Mesazhi juaj do te shfaqet ketu..."}
-                    </p>
-                  </div>
-                  
-                  {/* Imazhi bashkengjitur (Nese ka) */}
-                  {includeImage && productId && selectedProduct?.image_url && (
-                    <div className="flex-shrink-0 ml-1">
-                      <div className="w-[38px] h-[38px] bg-white/10 rounded-[8px] overflow-hidden shadow-sm">
-                        <img 
-                          src={selectedProduct.image_url} 
-                          alt="thumbnail" 
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                    </div>
-                  )}
+        {/* Djathtas: Prezantimi Live duke perdorur komponentin IphoneMockup */}
+        <div className="lg:col-span-5 flex justify-end mt-[-100px]">
+          <IphoneMockup>
+            {/* Njoftimi Kompakt i Mbi-vendosur */}
+            <div className="absolute top-[60px] left-[12px] right-[12px] z-10 animate-in slide-in-from-bottom-4 fade-in duration-500">
+              <div className="bg-[#2c2c2e]/60 backdrop-blur-2xl rounded-[24px] p-[12px] shadow-[0_8px_30px_rgb(0,0,0,0.3)] border border-white/10 flex items-center gap-3">
+                
+                {/* Imazhi / Ikona e App-it */}
+                <div className="flex-shrink-0">
+                  <img 
+                    src="/adaptive-icon.png" 
+                    alt="App Icon" 
+                    className="w-[38px] h-[38px] rounded-[10px] object-cover bg-white shadow-sm"
+                  />
                 </div>
-              </div>
 
-              {/* Butonat e poshtem (Elektriku dhe Kamera) */}
-  
-
-              {/* Home Indicator */}
-              <div className="absolute bottom-2 inset-x-0 flex justify-center">
-                <div className="w-[120px] h-1.5 bg-black/80 rounded-full shadow-sm"></div>
+                {/* Teksti */}
+                <div className="flex-1 min-w-0 flex flex-col justify-center">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[14px] font-semibold text-white truncate">
+                      {title || "Titulli"}
+                    </h4>
+                  </div>
+                  <p className="text-[13px] font-normal text-white/80 mt-[2px] leading-snug line-clamp-1">
+                    {body || "Mesazhi juaj do te shfaqet ketu..."}
+                  </p>
+                </div>
+                
+                {/* Imazhi bashkengjitur */}
+                {includeImage && productId && selectedProduct?.image_url && (
+                  <div className="flex-shrink-0 ml-1">
+                    <div className="w-[38px] h-[38px] bg-white/10 rounded-[8px] overflow-hidden shadow-sm">
+                      <img 
+                        src={selectedProduct.image_url} 
+                        alt="thumbnail" 
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          </IphoneMockup>
         </div>
       </div>
 

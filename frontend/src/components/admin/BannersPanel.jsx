@@ -5,6 +5,7 @@ import {
   UploadCloud, Loader2, Link2, GripVertical, 
   ChevronLeft, ChevronRight, Eye, EyeOff, Info
 } from "lucide-react";
+import IphoneMockup from "./IphoneMockup"; // Rregullo rrugen e importit nese duhet
 
 export default function BannersPanel() {
   const { 
@@ -91,10 +92,9 @@ export default function BannersPanel() {
   return (
     <div className="max-w-6xl mx-auto py-6">
       <div className="flex items-center justify-between mb-8">
-
         <button 
           onClick={() => showAdd ? resetForm() : setShowAdd(true)}
-          className="px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 bg-black text-white hover:bg-gray-800"
+          className="px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 bg-[#f68048] text-white hover:bg-gray-800"
         >
           {showAdd ? "Cancel" : <><Plus size={16} /> New Banner</>}
         </button>
@@ -212,55 +212,51 @@ export default function BannersPanel() {
           </div>
         </div>
 
-        {/* RIGHT COLUMN: Mobile iPhone Preview */}
-        <div className="lg:col-span-4 flex justify-center lg:justify-end">
+        {/* RIGHT COLUMN: Mobile iPhone Preview duke perdorur komponentin e ri */}
+        <div className="lg:col-span-4 flex justify-end lg:justify-end mt-[-100px] ">
           <div className="sticky top-6">
-            
-            {/* iPhone Mockup Box */}
-            <div className="w-[280px] h-[580px] bg-white border-[8px] border-gray-900 rounded-[2.5rem] shadow-2xl relative overflow-hidden flex flex-col">
-              {/* Notch */}
-              <div className="absolute top-0 inset-x-0 h-5 bg-gray-900 rounded-b-xl w-32 mx-auto z-20"></div>
-
-              {activeBanners.length > 0 ? (
-                <>
-                  {/* Banner Edge-to-Edge */}
-                  <div className="w-full aspect-[4/3] relative group bg-gray-100 flex-shrink-0">
-                    <img 
-                      src={activeBanners[currentSlide]?.image_url} 
-                      alt="Preview" 
-                      className="w-full h-full object-cover transition-opacity duration-700 ease-in-out"
-                      key={currentSlide}
-                    />
-                    <div className="absolute inset-0 bg-black/10" />
-                    
-     
-
-                    {/* Controls */}
-                    <div className="absolute top-1/2 -translate-y-1/2 w-full flex justify-between px-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => setCurrentSlide(p => p === 0 ? activeBanners.length - 1 : p - 1)} className="bg-white/80 p-1 rounded-full"><ChevronLeft size={14} /></button>
-                      <button onClick={() => setCurrentSlide(p => p === activeBanners.length - 1 ? 0 : p + 1)} className="bg-white/80 p-1 rounded-full"><ChevronRight size={14} /></button>
+            <IphoneMockup>
+              {/* Mbulesë e bardhë (që mbulon gjahtarët) për të simuluar brendësinë e një aplikacioni */}
+              <div className="absolute inset-0 bg-white z-10 flex flex-col  pb-5 overflow-hidden">
+                {activeBanners.length > 0 ? (
+                  <>
+                    {/* Banner Edge-to-Edge */}
+                    <div className="w-full aspect-[4/3] relative group bg-gray-100 flex-shrink-0">
+                      <img 
+                        src={activeBanners[currentSlide]?.image_url} 
+                        alt="Preview" 
+                        className="w-full h-full object-cover transition-opacity duration-700 ease-in-out"
+                        key={currentSlide}
+                      />
+                      <div className="absolute inset-0 bg-black/10" />
+                      
+                      {/* Controls */}
+                      <div className="absolute top-1/2 -translate-y-1/2 w-full flex justify-between px-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => setCurrentSlide(p => p === 0 ? activeBanners.length - 1 : p - 1)} className="bg-white/80 p-1 rounded-full"><ChevronLeft size={14} /></button>
+                        <button onClick={() => setCurrentSlide(p => p === activeBanners.length - 1 ? 0 : p + 1)} className="bg-white/80 p-1 rounded-full"><ChevronRight size={14} /></button>
+                      </div>
                     </div>
+
+                    {/* Mock content below banner */}
+                    <div className="p-3 flex-1 bg-white">
+                      <div className="flex gap-2 mb-4 overflow-hidden">
+                        <div className="w-12 h-6 bg-gray-800 rounded-full flex-shrink-0"></div>
+                        <div className="w-16 h-6 bg-gray-100 rounded-full flex-shrink-0"></div>
+                        <div className="w-14 h-6 bg-gray-100 rounded-full flex-shrink-0"></div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="h-32 bg-gray-100 rounded-lg"></div>
+                        <div className="h-32 bg-gray-100 rounded-lg"></div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center bg-white text-gray-400 text-xs text-center p-6 border-t border-gray-100">
+                    Nuk ka baner aktiv
                   </div>
-
-                  {/* Mock content below banner */}
-                  <div className="p-3 flex-1 bg-white">
-                    <div className="flex gap-2 mb-4 overflow-hidden">
-                      <div className="w-12 h-6 bg-gray-800 rounded-full flex-shrink-0"></div>
-                      <div className="w-16 h-6 bg-gray-100 rounded-full flex-shrink-0"></div>
-                      <div className="w-14 h-6 bg-gray-100 rounded-full flex-shrink-0"></div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="h-32 bg-gray-100 rounded-lg"></div>
-                      <div className="h-32 bg-gray-100 rounded-lg"></div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="flex-1 flex items-center justify-center bg-gray-50 text-gray-400 text-xs text-center p-6">
-                  Nuk ka baner aktiv
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            </IphoneMockup>
           </div>
         </div>
 

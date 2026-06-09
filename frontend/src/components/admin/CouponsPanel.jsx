@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAdminStore } from "../../stores/useAdminStore";
-import { Plus, Trash2, AlertCircle, Info, Tag, Search, X, Check, Wand2 } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Info, Search, X, Check, Wand2 } from "lucide-react";
 
 // --- KOMPONENTË NDIHMËS ---
 function Badge({ children, color = "gray" }) {
@@ -19,17 +19,30 @@ function Badge({ children, color = "gray" }) {
 
 // --- MODALI I KRIJIMIT TË KUPONIT ---
 function CouponFormModal({ onClose, onSuccess }) {
-  const { createCoupon, products, categories } = useAdminStore();
-  const [saving, setSaving] = useState(false);
+  const { 
+    createCoupon, 
+    products, 
+    categories, 
+    customers, 
+    fetchCustomersForCoupons 
+  } = useAdminStore();
   
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    code: "", discount_type: "percentage", discount_value: "", valid_for_name: "", max_uses: ""
+    code: "", discount_type: "percentage", discount_value: "", max_uses: ""
   });
 
-  // Logjika e targetimit
-  const [targetType, setTargetType] = useState("all"); // 'all', 'category', 'products'
+  // Targetimi
+  const [targetType, setTargetType] = useState("all");
   const [selectedCat, setSelectedCat] = useState("");
   const [selectedProducts, setSelectedProducts] = useState([]);
+  
+  // Klienti specifik
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
+
+  useEffect(() => {
+    fetchCustomersForCoupons();
+  }, [fetchCustomersForCoupons]);
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
 
@@ -43,29 +56,24 @@ function CouponFormModal({ onClose, onSuccess }) {
     setSaving(true);
 
     let product_ids = [];
-    
-    // Gjej ID-të e produkteve nëse zgjidhet Kategori
     if (targetType === "category" && selectedCat) {
       product_ids = products
-        .filter(p => 
-          String(p.category_id) === String(selectedCat) || 
-          String(p.category?.id) === String(selectedCat) ||
-          String(p.category) === String(selectedCat)
-        )
+        .filter(p => String(p.category_id) === String(selectedCat) || String(p.category?.id) === String(selectedCat) || String(p.category) === String(selectedCat))
         .map(p => p.id);
-    } 
-    // Ose ID-të e zgjedhura manualisht
-    else if (targetType === "products") {
+    } else if (targetType === "products") {
       product_ids = selectedProducts;
     }
 
+    // Gjej klientin e zgjedhur për të marrë të dhënat e tij
+const selectedCustomer = customers?.find(c => c.phone_number === selectedCustomerId);
     const payload = {
       code: form.code.toUpperCase().trim(),
       discount_type: form.discount_type,
       discount_value: parseFloat(form.discount_value),
-      valid_for_name: form.valid_for_name.trim() || null,
       max_uses: form.max_uses ? parseInt(form.max_uses) : null,
       product_ids: product_ids,
+      target_device_token: selectedCustomer?.device_token || null,
+      valid_for_phone: selectedCustomer?.phone_number || null,
     };
 
     const result = await createCoupon(payload);
@@ -115,7 +123,7 @@ function CouponFormModal({ onClose, onSuccess }) {
             </div>
           </div>
 
-          {/* Targetimi - Pjesa e thjeshtuar */}
+          {/* Targetimi i produkteve */}
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
             <label className={labelCls}>Kush përfiton zbritje?</label>
             <select className={`${inputCls} bg-white mb-3`} value={targetType} onChange={e => { setTargetType(e.target.value); setSelectedCat(""); setSelectedProducts([]); }}>
@@ -146,11 +154,18 @@ function CouponFormModal({ onClose, onSuccess }) {
             )}
           </div>
 
-          {/* Opsionale */}
+          {/* Opsionale - Klienti & Përdorimet */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Për Klientin <span className="text-gray-400 normal-case">(Opsional)</span></label>
-              <input className={inputCls} placeholder="Emri klientit" value={form.valid_for_name} onChange={(e) => set("valid_for_name", e.target.value)} />
+              <select className={inputCls} value={selectedCustomerId} onChange={(e) => setSelectedCustomerId(e.target.value)}>
+                <option value="">-- Të gjithë --</option>
+     {customers?.map(c => (
+  <option key={c.phone_number} value={c.phone_number}>
+    {c.customer_name} - {c.phone_number}
+  </option>
+))}
+              </select>
             </div>
             <div>
               <label className={labelCls}>Limiti përdorimeve <span className="text-gray-400 normal-case">(Opsional)</span></label>
@@ -206,7 +221,6 @@ export default function CouponsPanel() {
   const [toast, setToast] = useState(null);
   const [search, setSearch] = useState("");
 
-  // Bëj fetch automatikisht vetëm nëse të dhënat janë bosh
   useEffect(() => { 
     fetchCoupons(); 
     if (!categories || categories.length === 0) fetchCategories();

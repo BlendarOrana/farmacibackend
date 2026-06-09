@@ -168,6 +168,52 @@ export const searchPublicProducts = async (req, res) => {
 };
 
 
+
+
+// Fetch user's personal coupons/gift cards by device token
+export const getUserCoupons = async (req, res) => {
+  const { device_token, phone_number } = req.query;
+  
+  // Require AT LEAST ONE of them
+  if (!device_token && !phone_number) {
+    return res.status(400).json({ error: "Device token or phone number is required" });
+  }
+
+  try {
+    // 🚀 Fast SQL Query: Checks for device_token OR phone_number
+    // We check "$1 != ''" to prevent accidentally matching empty strings/nulls
+    const { rows } = await promisePool.query(
+      `SELECT * FROM coupons 
+       WHERE (target_device_token = $1 AND $1 != '') 
+          OR (valid_for_phone = $2 AND $2 != '')
+       ORDER BY created_at DESC`,
+      [device_token || '', phone_number || '']
+    );
+    
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Mark coupon as read when user reveals it
+// Backend Controller
+export const markCouponAsRead = async (req, res) => {
+  const { id } = req.params;
+  try {
+    // 🚀 FIX: Wrapped "read" in quotes because it is an SQL reserved keyword!
+    await promisePool.query(
+      `UPDATE coupons SET "read" = true WHERE id = $1`,
+      [id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error updating coupon:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
 // ─── BANNERS ─────────────────────────────────────────────────
 export const getActiveBanners = async (req, res) => {
   try {
@@ -188,8 +234,10 @@ export const getActiveBanners = async (req, res) => {
 
 // orderController.js ose shopController.js (vendi ku e ke këtë kod në backend)
 
+// 1. VALIDATE COUPON
 export const validateCoupon = async (req, res) => {
-  const { code, customer_name, cart_items } = req.body;
+  // Switched customer_name to phone_number
+  const { code, phone_number, cart_items } = req.body;
   if (!code || !cart_items || !cart_items.length) return res.status(400).json({ error: "Missing required data" });
 
   try {
@@ -201,20 +249,20 @@ export const validateCoupon = async (req, res) => {
     // 1. Basic Checks
     if (!coupon.is_active) return res.status(400).json({ error: "Ky kupon nuk është aktiv." });
     if (coupon.max_uses && coupon.used_count >= coupon.max_uses) return res.status(400).json({ error: "Ky kupon është përdorur në maksimum." });
-    if (coupon.valid_for_name && customer_name && coupon.valid_for_name.toLowerCase() !== customer_name.toLowerCase().trim()) {
-      return res.status(400).json({ error: "Ky kupon nuk vlen për emrin tuaj." });
+    
+    // Check by Phone Number instead of Name
+    if (coupon.valid_for_phone && phone_number && coupon.valid_for_phone.trim() !== phone_number.trim()) {
+      return res.status(400).json({ error: "Ky kupon nuk vlen për numrin tuaj të telefonit." });
     }
 
     // 2. Calculate how much of the cart is ELIGIBLE for the discount
     let eligible_amount = 0;
-    
     for (const item of cart_items) {
       const prodRes = await promisePool.query("SELECT price FROM products WHERE id = $1", [item.product_id]);
       if (prodRes.rows.length) {
         const prod = prodRes.rows[0];
         const itemTotal = parseFloat(prod.price) * item.quantity;
         
-        // If product_ids array is empty/null, apply to ALL. Otherwise, apply ONLY if item is inside the array.
         if (!coupon.product_ids || coupon.product_ids.length === 0 || coupon.product_ids.includes(item.product_id)) {
           eligible_amount += itemTotal;
         }
@@ -234,8 +282,11 @@ export const validateCoupon = async (req, res) => {
   }
 };
 
+
+// 2. PLACE ORDER
 export const placeOrder = async (req, res) => {
-  const { customer_name, customer_email, phone_number, address, city, payment_type, items, coupon_code } = req.body;
+  // Added device_token here
+  const { customer_name, customer_email, phone_number, address, city, payment_type, items, coupon_code, device_token } = req.body;
 
   if (!customer_name || !customer_email || !phone_number || !address || !city || !payment_type || !items?.length) {
     return res.status(400).json({ error: "Të gjitha fushat dhe të paktën një produkt janë të detyrueshme" });
@@ -251,12 +302,13 @@ export const placeOrder = async (req, res) => {
     const enrichedItems = [];
     let appliedCoupon = null;
 
-    // Securely check Coupon on the backend again before placing order
+    // Securely check Coupon using PHONE NUMBER
     if (coupon_code) {
       const couponRes = await client.query("SELECT * FROM coupons WHERE code = $1 FOR UPDATE", [coupon_code.toUpperCase().trim()]);
       if (couponRes.rows.length) {
         const c = couponRes.rows[0];
-        if (c.is_active && (!c.max_uses || c.used_count < c.max_uses) && (!c.valid_for_name || c.valid_for_name.toLowerCase() === customer_name.toLowerCase().trim())) {
+        // Replaced valid_for_name with valid_for_phone
+        if (c.is_active && (!c.max_uses || c.used_count < c.max_uses) && (!c.valid_for_phone || c.valid_for_phone.trim() === phone_number.trim())) {
           appliedCoupon = c; 
         }
       }
@@ -275,7 +327,6 @@ export const placeOrder = async (req, res) => {
       total_amount += lineTotal;
       enrichedItems.push({ ...item, price: product.price });
 
-      // Sum eligible total for discount
       if (appliedCoupon) {
         if (!appliedCoupon.product_ids || appliedCoupon.product_ids.length === 0 || appliedCoupon.product_ids.includes(item.product_id)) {
           eligible_discount_amount += lineTotal;
@@ -283,7 +334,6 @@ export const placeOrder = async (req, res) => {
       }
     }
 
-    // Apply Exact Math
     if (appliedCoupon && eligible_discount_amount > 0) {
       let exactDiscount = 0;
       if (appliedCoupon.discount_type === 'percentage') exactDiscount = eligible_discount_amount * (parseFloat(appliedCoupon.discount_value) / 100);
@@ -293,15 +343,14 @@ export const placeOrder = async (req, res) => {
       await client.query("UPDATE coupons SET used_count = used_count + 1 WHERE id = $1", [appliedCoupon.id]);
     }
 
-    // Create the order
+    // Insert order AND device_token
     const orderResult = await client.query(
-      `INSERT INTO orders (customer_name, customer_email, phone_number, address, city, total_amount, payment_type, payment_status, order_status, applied_coupon)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING', 'NEW', $8) RETURNING *`,
-      [customer_name, customer_email, phone_number, address, city, total_amount.toFixed(2), payment_type, appliedCoupon ? appliedCoupon.code : null]
+      `INSERT INTO orders (customer_name, customer_email, phone_number, address, city, total_amount, payment_type, payment_status, order_status, applied_coupon, device_token)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING', 'NEW', $8, $9) RETURNING *`,
+      [customer_name, customer_email, phone_number, address, city, total_amount.toFixed(2), payment_type, appliedCoupon ? appliedCoupon.code : null, device_token || null]
     );
     const order = orderResult.rows[0];
 
-    // Deduct stock
     for (const item of enrichedItems) {
       await client.query("INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase) VALUES ($1, $2, $3, $4)", [order.id, item.product_id, item.quantity, item.price]);
       await client.query("UPDATE products SET quantity = quantity - $1 WHERE id = $2", [item.quantity, item.product_id]);
@@ -316,4 +365,5 @@ export const placeOrder = async (req, res) => {
     client.release();
   }
 };
+
 

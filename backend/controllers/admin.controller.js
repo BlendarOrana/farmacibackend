@@ -33,9 +33,10 @@ export const deleteCategory = async (req, res) => {
 
 
 
-
+// 1. UPDATE CREATE COUPON
 export const createCoupon = async (req, res) => {
-  const { code, discount_type, discount_value, valid_for_name, max_uses, product_ids } = req.body;
+  // Replaced valid_for_name with valid_for_phone and added target_device_token
+  const { code, discount_type, discount_value, valid_for_phone, max_uses, product_ids, target_device_token } = req.body;
   
   if (!code || !discount_type || !discount_value) {
     return res.status(400).json({ error: "Code, type, and value are required" });
@@ -43,15 +44,16 @@ export const createCoupon = async (req, res) => {
 
   try {
     const { rows } = await promisePool.query(
-      `INSERT INTO coupons (code, discount_type, discount_value, valid_for_name, max_uses, product_ids)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      `INSERT INTO coupons (code, discount_type, discount_value, valid_for_phone, max_uses, product_ids, target_device_token)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [
         code.toUpperCase().trim(), 
         discount_type, 
         discount_value, 
-        valid_for_name || null, 
+        valid_for_phone || null, 
         max_uses || null, 
-        product_ids || [] // e.g. [1, 5, 8]
+        product_ids || [], 
+        target_device_token || null
       ]
     );
     res.status(201).json(rows[0]);
@@ -59,16 +61,44 @@ export const createCoupon = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
-export const getCoupons = async (req, res) => {
+
+// 2. NEW ENDPOINT: GET CUSTOMERS FOR ADMIN TO SELECT
+export const getCustomersForCoupons = async (req, res) => {
   try {
+    // This fetches unique customers based on their phone number, getting their latest device_token
     const { rows } = await promisePool.query(`
-      SELECT * FROM coupons ORDER BY created_at DESC
+      SELECT DISTINCT ON (phone_number) 
+        customer_name, 
+        phone_number, 
+        device_token 
+      FROM orders 
+      WHERE device_token IS NOT NULL 
+      ORDER BY phone_number, created_at DESC
     `);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
+export const getCoupons = async (req, res) => {
+  try {
+    const { rows } = await promisePool.query(`SELECT * FROM coupons ORDER BY created_at DESC`);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -312,8 +342,11 @@ export const deleteProduct = async (req, res) => {
 // ─── ORDERS ───────────────────────────────────────────────────
 // orderControllers.js (ose emri i file-it tuaj të backend-it)
 
+// orderController.js (Backend)
+
 export const getOrders = async (req, res) => {
-  const { status, payment_status, payment_type } = req.query;
+  // Shto page dhe limit nga query params, me vlera default 1 dhe 20
+  const { status, payment_status, payment_type, page = 1, limit = 20 } = req.query;
 
   let query = `
     SELECT o.*, 
@@ -336,13 +369,22 @@ export const getOrders = async (req, res) => {
   `;
   const params = [];
 
+  // Filtrat
   if (status) { params.push(status); query += ` AND o.order_status = $${params.length}`; }
   if (payment_status) { params.push(payment_status); query += ` AND o.payment_status = $${params.length}`; }
   if (payment_type) { params.push(payment_type); query += ` AND o.payment_type = $${params.length}`; }
 
   query += " GROUP BY o.id, c.discount_type, c.discount_value ORDER BY o.created_at DESC";
 
+  // Logjika për Infinite Scroll (Limit & Offset)
+  const offset = (page - 1) * limit;
+  params.push(limit);
+  query += ` LIMIT $${params.length}`;
+  params.push(offset);
+  query += ` OFFSET $${params.length}`;
+
   try {
+    // Shënim: zëvendëso 'promisePool' me instancën tënde të databazës
     const { rows } = await promisePool.query(query, params);
     res.json(rows);
   } catch (error) { 
