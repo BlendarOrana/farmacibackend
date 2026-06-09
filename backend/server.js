@@ -87,7 +87,7 @@ app.use(
         process.env.FRONTEND_URL,       // set in your .env
         "https://www.farmaci-app.com",  // update to your real domain
         "https://farmaci-app.com",
-        "https://backupservice.onrender.com",
+        "https://farmacibackend.onrender.com",
 ,      ].filter(Boolean);
       // no origin = React Native / mobile — always allow
       if (!origin || allowed.includes(origin)) return callback(null, true);
