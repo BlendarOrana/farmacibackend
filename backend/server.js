@@ -142,10 +142,10 @@ app.get("/health", (req, res) => res.status(200).json({ status: "OK" }));
 
 // ─── SERVE FRONTEND (production) ──────────────────────────────
 if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "/frontend/dist")));
-  app.get(/.*/, (req, res) =>
-    res.sendFile(path.resolve(__dirname, "frontend", "dist", "index.html"))
-  );
+app.use(express.static(path.join(process.cwd(), "frontend/dist")));
+app.get(/.*/, (req, res) =>
+  res.sendFile(path.resolve(__dirname, "frontend", "dist", "index.html"))
+);
 }
 
 // ─── 404 FOR UNMATCHED API ROUTES ─────────────────────────────
