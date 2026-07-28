@@ -12,6 +12,8 @@ import csrf from "csurf";
 import authRoutes from "./routes/auth.route.js";
 import adminRoutes from "./routes/admin.route.js";
 import shopRoutes from "./routes/shop.route.js";
+import notificationRoutes from "./routes/notification.route.js";
+
 
 import { testS3Connection } from "./lib/s3.js";
 import { connectDB } from "./lib/db.js";
@@ -88,6 +90,7 @@ app.use(
         "https://www.farmaci-app.com",  // update to your real domain
         "https://farmaci-app.com",
         "https://farmacibackend.onrender.com",
+        "http://localhost:5173"
 ,      ].filter(Boolean);
       // no origin = React Native / mobile — always allow
       if (!origin || allowed.includes(origin)) return callback(null, true);
@@ -136,6 +139,8 @@ app.use("/api/auth", authLimiter, authRoutes);
 
 // Admin dashboard — auth guards are inside the route file
 app.use("/api/admin", adminRoutes);
+app.use("/api/notifications", notificationRoutes);
+
 
 // Health check
 app.get("/health", (req, res) => res.status(200).json({ status: "OK" }));

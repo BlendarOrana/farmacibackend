@@ -71,13 +71,13 @@ export const sendNotificationToAll = async (req, res) => {
       return res.status(400).json({ error: 'Title and body are required' });
     }
 
-    // 1. Prepare routing data for the mobile app
+    // 1. Prepare routing data for the mobile app navigation
     const pushData = {};
 
     if (product_id) pushData.product_id = product_id;
     if (category_id) pushData.category_id = category_id;
 
-    // 2. ONLY fetch and attach the image if the admin explicitly requested it AND a product is selected
+    // 2. Fetch and transform the WebP image to iOS/Android safe JPG on the fly!
     if (include_image === true && product_id) {
       const productRes = await promisePool.query(
         'SELECT image_url FROM products WHERE id = $1',
@@ -85,11 +85,18 @@ export const sendNotificationToAll = async (req, res) => {
       );
       
       if (productRes.rows.length > 0 && productRes.rows[0].image_url) {
-        pushData.image_url = productRes.rows[0].image_url;
+        const rawWebpUrl = productRes.rows[0].image_url;
+        
+        // Remove https:// since the wsrv.nl proxy prefers domains
+        const domainPathOnly = rawWebpUrl.replace(/^https?:\/\//, '');
+
+        // Encode to ensure safe URL parsing, force the output format to .jpg
+        // Using wsrv.nl ensures our backend/S3 won't get hit by thousands of phone image requests simultaneously!
+        pushData.image_url = `https://wsrv.nl/?url=${encodeURIComponent(domainPathOnly)}&output=jpg`;
       }
     }
 
-    // 3. Send push via Expo
+    // 3. Send push via Expo (Make sure NotificationService extracts data.image_url -> message.image)
     const result = await NotificationService.sendToAllTokens(
       title,
       body,
@@ -118,6 +125,7 @@ export const sendNotificationToAll = async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
 
 
 /**

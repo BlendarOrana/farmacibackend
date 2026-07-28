@@ -4,6 +4,9 @@ import { promisePool } from '../lib/db.js';
 const expo = new Expo();
 
 export const NotificationService = {
+  // --------------------------------------------------------
+  // 1. OLD METHODS 
+  // --------------------------------------------------------
   async updateUserPushToken(userId, pushToken, platform = null) {
     try {
       if (!Expo.isExpoPushToken(pushToken)) throw new Error('Invalid Expo push token');
@@ -19,16 +22,6 @@ export const NotificationService = {
     } catch (error) { return { success: false, error: error.message }; }
   },
 
-  async saveNotificationToDatabase(userId, title, body, data = {}) {
-    try {
-      await promisePool.query(
-        `INSERT INTO notifications (user_id, title, body, data, is_read, created_at)
-         VALUES ($1, $2, $3, $4, false, NOW())`,
-        [userId, title, body, JSON.stringify(data)]
-      );
-    } catch (error) { console.error('Error saving notification:', error); }
-  },
-
   async sendPushNotification(userId, title, body, data = {}) {
     try {
       const result = await promisePool.query('SELECT push_token FROM users WHERE id = $1 AND push_token IS NOT NULL', [userId]);
@@ -37,108 +30,110 @@ export const NotificationService = {
       const pushToken = result.rows[0].push_token;
       if (!Expo.isExpoPushToken(pushToken)) return { success: false, message: 'Invalid push token' };
 
-      await expo.sendPushNotificationsAsync([{ to: pushToken, sound: 'default', title, body, data, priority: 'high', badge: 1 }]);
-      await this.saveNotificationToDatabase(userId, title, body, data);
+      const message = { 
+        to: pushToken, 
+        sound: 'default', 
+        title, 
+        body, 
+        data, 
+        priority: 'high', 
+        badge: 1 
+      };
 
+      // Ensure single-notification service also builds rich images correctly
+      if (data.image_url) {
+        message.image = data.image_url;
+        message.mutableContent = true; 
+      }
+
+      await expo.sendPushNotificationsAsync([message]);
       return { success: true };
     } catch (error) { return { success: false, error: error.message }; }
   },
 
-  async sendPushNotificationByName(userName, title, body, data = {}) {
+  // --------------------------------------------------------
+  // 2. BROADCAST METHOD (With iOS/Android native Image Fixes)
+  // --------------------------------------------------------
+  async sendToAllTokens(title, body, data = {}, batchSize = 50, delayMs = 1000) {
     try {
-      const result = await promisePool.query('SELECT id, push_token FROM users WHERE name = $1', [userName]);
-      if (result.rows.length === 0) return { success: false, message: 'User not found' };
-      if (!result.rows[0].push_token) return { success: false, message: 'User has no push token' };
-      return await this.sendPushNotification(result.rows[0].id, title, body, data);
-    } catch (error) { return { success: false, error: error.message }; }
-  },
-
-  // --- UPDATED BATCH FUNCTION ---
-  async sendBatchNotifications(filter, title, body, data = {}, batchSize = 50, delayMs = 1000) {
-    try {
-      let query = 'SELECT id, push_token, name FROM users WHERE active = true';
-      const params = [];
-      
-      if (filter.role) {
-        params.push(filter.role);
-        query += ` AND title = $${params.length}`; 
-      }
-      if (filter.region) {
-        params.push(filter.region);
-        query += ` AND region = $${params.length}`;
-      }
-      
-      query += ' AND push_token IS NOT NULL';
-      
-      const result = await promisePool.query(query, params);
+      // Fetch ONLY active anonymous push tokens
+      const result = await promisePool.query('SELECT token FROM push_tokens WHERE active = true');
       
       if (result.rows.length === 0) {
-        return { success: false, message: 'No users found', totalUsers: 0, sentCount: 0, failedCount: 0 };
+        return { success: false, message: 'No active tokens found', totalUsers: 0, sentCount: 0, failedCount: 0 };
       }
 
-      const users = result.rows;
-      const batches = this.chunkArray(users, batchSize);
+      const tokens = result.rows.map(row => row.token);
+      const batches = this.chunkArray(tokens, batchSize);
       
       let sentCount = 0;
       let failedCount = 0;
-      const failedUsers = [];
 
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
         const messages = [];
-        const validUsers = [];
         
-        for (const user of batch) {
-          if (Expo.isExpoPushToken(user.push_token)) {
-            messages.push({ to: user.push_token, sound: 'default', title, body, data, priority: 'high', badge: 1 });
-            validUsers.push(user);
+        for (const token of batch) {
+          if (Expo.isExpoPushToken(token)) {
+            const message = { 
+              to: token, 
+              sound: 'default', 
+              title, 
+              body, 
+              data, // Keep data so user gets product routing on app-tap
+              priority: 'high', 
+              badge: 1 
+            };
+
+            // ✅ CRITICAL FIX: Extract image natively to the root object 
+            // This is required to force Android and iOS Notification Centers to show rich media
+            if (data.image_url) {
+              message.image = data.image_url;      // Triggers Android large native image
+              message.mutableContent = true;       // Triggers iOS extension handler
+            }
+
+            messages.push(message);
           } else {
             failedCount++;
-            failedUsers.push({ id: user.id, name: user.name, reason: 'Invalid push token' });
           }
         }
 
         if (messages.length > 0) {
           try {
             await expo.sendPushNotificationsAsync(messages);
-            // Notice: We removed the loop saving to the DB here!
-            sentCount += validUsers.length;
+            sentCount += messages.length;
           } catch (error) {
-            failedCount += validUsers.length;
-            validUsers.forEach(user => failedUsers.push({ id: user.id, name: user.name, reason: 'Send failed' }));
+            console.error("Batch send error:", error);
+            failedCount += messages.length;
           }
         }
 
-        if (i < batches.length - 1) await new Promise(resolve => setTimeout(resolve, delayMs));
-      }
-
-      // SAVE EXACTLY 1 ROW FOR THE ENTIRE BROADCAST! 
-      if (sentCount > 0) {
-        await promisePool.query(
-          `INSERT INTO notifications (user_id, title, body, data, is_read, created_at)
-           VALUES (NULL, $1, $2, $3, false, NOW())`,
-          [title, body, JSON.stringify({ ...data, target_filter: filter })]
-        );
+        // Delay between batches to respect Expo rate limits (default ~90 messages / sec rule)
+        if (i < batches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
       }
 
       return {
         success: sentCount > 0,
-        message: `Sent to ${sentCount} users, ${failedCount} failed`,
-        totalUsers: users.length,
+        message: `Sent to ${sentCount} devices, ${failedCount} failed`,
+        totalUsers: tokens.length,
         sentCount,
-        failedCount,
-        failedUsers: failedUsers.length > 0 ? failedUsers : undefined
+        failedCount
       };
-    } catch (error) { return { success: false, error: error.message, totalUsers: 0, sentCount: 0, failedCount: 0 }; }
+    } catch (error) { 
+      return { success: false, error: error.message, totalUsers: 0, sentCount: 0, failedCount: 0 }; 
+    }
   },
 
-  async sendToAllUsers(title, body, data = {}, batchSize = 100, delayMs = 500) {
-    return await this.sendBatchNotifications({}, title, body, data, batchSize, delayMs);
-  },
-
+  // --------------------------------------------------------
+  // 3. UTILITIES
+  // --------------------------------------------------------
   chunkArray(array, size) {
     const chunks = [];
-    for (let i = 0; i < array.length; i += size) chunks.push(array.slice(i, i + size));
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
     return chunks;
   }
 };
