@@ -14,7 +14,6 @@ import adminRoutes from "./routes/admin.route.js";
 import shopRoutes from "./routes/shop.route.js";
 import notificationRoutes from "./routes/notification.route.js";
 
-
 import { testS3Connection } from "./lib/s3.js";
 import { connectDB } from "./lib/db.js";
 import { sqlInjectionProtection } from "./lib/security/postgres.security.js";
@@ -66,8 +65,6 @@ app.use(
   })
 );
 
-
-
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 min
   max: 30,
@@ -86,19 +83,19 @@ app.use(
     origin: (origin, callback) => {
       if (process.env.NODE_ENV !== "production") return callback(null, true);
       const allowed = [
-        process.env.FRONTEND_URL,       // set in your .env
-        "https://www.farmaci-app.com",  // update to your real domain
+        process.env.FRONTEND_URL,       
+        "https://www.farmaci-app.com",  
         "https://farmaci-app.com",
         "https://farmacibackend.onrender.com",
         "http://localhost:5173"
-,      ].filter(Boolean);
-      // no origin = React Native / mobile — always allow
+      ].filter(Boolean);
       if (!origin || allowed.includes(origin)) return callback(null, true);
       callback(new Error("Origin not allowed by CORS"));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allowedHeaders: ["Content-Type", "Authorization", "Cookie", "CSRF-Token", "X-Client-Type"],
+    // 🚀 ADDED 'X-Mobile-Secret' TO ALLOWED HEADERS
+    allowedHeaders: ["Content-Type", "Authorization", "Cookie", "CSRF-Token", "X-Client-Type", "X-Mobile-Secret"],
   })
 );
 
@@ -115,11 +112,24 @@ const csrfProtection = csrf({
   },
 });
 
-// Skip CSRF for safe methods and mobile/React Native clients
+// 🚀 SECURITY GATEKEEPER IMPLEMENTED
 const conditionalCsrf = (req, res, next) => {
+  // Always allow read-only requests
   if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
+  
   const clientType = req.headers["x-client-type"];
-  if (clientType === "mobile" || clientType === "react-native") return next();
+  
+  if (clientType === "mobile" || clientType === "react-native") {
+    const mobileSecret = req.headers["x-mobile-secret"];
+    // Validate secret key if claiming to be mobile
+    if (!mobileSecret || mobileSecret !== process.env.MOBILE_APP_SECRET) {
+      return res.status(403).json({ error: "Forbidden: Invalid Mobile App Secret" });
+    }
+    // Authentic mobile request, safely skip CSRF
+    return next();
+  }
+  
+  // Standard web browser fallback to CSRF protection
   csrfProtection(req, res, next);
 };
 
@@ -129,7 +139,7 @@ app.get("/api/csrf-token", csrfProtection, (req, res) => {
 });
 
 // ─── ROUTES ───────────────────────────────────────────────────
-app.use("/api/",  conditionalCsrf);
+app.use("/api/", conditionalCsrf);
 
 // Public — no auth required (React Native app + web customers)
 app.use("/api/shop", shopRoutes);
@@ -147,10 +157,10 @@ app.get("/health", (req, res) => res.status(200).json({ status: "OK" }));
 
 // ─── SERVE FRONTEND (production) ──────────────────────────────
 if (process.env.NODE_ENV === "production") {
-app.use(express.static(path.join(process.cwd(), "frontend/dist")));
-app.get(/.*/, (req, res) =>
-  res.sendFile(path.resolve(__dirname, "frontend", "dist", "index.html"))
-);
+  app.use(express.static(path.join(process.cwd(), "frontend/dist")));
+  app.get(/.*/, (req, res) =>
+    res.sendFile(path.resolve(__dirname, "frontend", "dist", "index.html"))
+  );
 }
 
 // ─── 404 FOR UNMATCHED API ROUTES ─────────────────────────────
