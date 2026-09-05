@@ -5,26 +5,34 @@ import {
   Bell, Send, Smartphone, Info, AlertCircle, 
   Users, Apple, History, Lock, Flashlight, Camera, X
 } from "lucide-react";
-import IphoneMockup from "./IphoneMockup"; // Rregullo rrugen e importit nese duhet
+import IphoneMockup from "./IphoneMockup";
 
 export default function NotificationsPanel() {
   const { 
     stats, history, fetchStats, fetchHistory, sendNotification, isSending 
   } = useNotificationStore();
-  const { products, categories, fetchProducts, fetchCategories } = useAdminStore();
+  
+  // SHTUAR: brands dhe fetchBrands nga store juaj i adminit
+  const { 
+    products, categories, brands, 
+    fetchProducts, fetchCategories, fetchBrands 
+  } = useAdminStore();
 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [productId, setProductId] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [brandId, setBrandId] = useState(""); // SHTUAR: State per Brand
   const [includeImage, setIncludeImage] = useState(false);
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
     fetchStats();
     fetchHistory();
-    if (products.length === 0) fetchProducts();
-    if (categories.length === 0) fetchCategories();
+    if (!products || products.length === 0) fetchProducts();
+    if (!categories || categories.length === 0) fetchCategories();
+    // SHTUAR: fetch per brands
+    if (!brands || brands.length === 0) if(fetchBrands) fetchBrands(); 
   }, []);
 
   const showToast = (msg, type = "success") => {
@@ -40,6 +48,7 @@ export default function NotificationsPanel() {
       body,
       product_id: productId || null,
       category_id: categoryId || null,
+      brand_id: brandId || null, // SHTUAR: Ne payload
       include_image: includeImage
     };
 
@@ -50,13 +59,20 @@ export default function NotificationsPanel() {
       setBody("");
       setProductId("");
       setCategoryId("");
+      setBrandId(""); // SHTUAR: Pastrimi i state
       setIncludeImage(false);
     } else {
       showToast(res.message, "error");
     }
   };
 
-  const selectedProduct = products.find(p => String(p.id) === String(productId));
+  // Logjika dinamike per gjetjen e imazhit nga cili do element qe eshte selektuar
+  const selectedProduct = products?.find(p => String(p.id) === String(productId));
+  const selectedCategory = categories?.find(c => String(c.id) === String(categoryId));
+  const selectedBrand = brands?.find(b => String(b.id) === String(brandId));
+  
+  // Elementi aktiv aktual
+  const selectedEntity = selectedProduct || selectedCategory || selectedBrand;
 
   return (
     <div className="flex flex-col gap-6 relative font-sans">
@@ -80,7 +96,7 @@ export default function NotificationsPanel() {
           <div>
             <p className="text-xs font-medium text-gray-500">Pajisje Aktive</p>
             <h3 className="text-lg font-bold text-gray-900">
-              {stats.active_tokens || 0}
+              {stats?.active_tokens || 0}
             </h3>
           </div>
         </div>
@@ -92,29 +108,24 @@ export default function NotificationsPanel() {
           <div>
             <p className="text-xs font-medium text-gray-500">Perdorues iOS</p>
             <h3 className="text-lg font-bold text-gray-900">
-              {stats.ios_tokens || 0}
-            </h3>
-          </div>
-           <div className="w-10 h-10 bg-green-50 text-green-600 rounded-full flex items-center justify-center">
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 512 512"
-    width={18}
-    height={18}
-    fill="currentColor"
-  >
-    <path d="M380.91,199l42.47-73.57a8.63,8.63,0,0,0-3.12-11.76,8.52,8.52,0,0,0-11.71,3.12l-43,74.52c-32.83-15-69.78-23.35-109.52-23.35s-76.69,8.36-109.52,23.35l-43-74.52a8.6,8.6,0,1,0-14.88,8.64L131,199C57.8,238.64,8.19,312.77,0,399.55H512C503.81,312.77,454.2,238.64,380.91,199ZM138.45,327.65a21.46,21.46,0,1,1,21.46-21.46A21.47,21.47,0,0,1,138.45,327.65Zm235,0A21.46,21.46,0,1,1,395,306.19,21.47,21.47,0,0,1,373.49,327.65Z" />
-  </svg>
-</div>
-          <div>
-            <p className="text-xs font-medium text-gray-500">Perdorues Android</p>
-            <h3 className="text-lg font-bold text-gray-900">
-              {stats.android_tokens || 0}
+              {stats?.ios_tokens || 0}
             </h3>
           </div>
         </div>
 
-     
+        <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3">
+          <div className="w-10 h-10 bg-green-50 text-green-600 rounded-full flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width={18} height={18} fill="currentColor">
+              <path d="M380.91,199l42.47-73.57a8.63,8.63,0,0,0-3.12-11.76,8.52,8.52,0,0,0-11.71,3.12l-43,74.52c-32.83-15-69.78-23.35-109.52-23.35s-76.69,8.36-109.52,23.35l-43-74.52a8.6,8.6,0,1,0-14.88,8.64L131,199C57.8,238.64,8.19,312.77,0,399.55H512C503.81,312.77,454.2,238.64,380.91,199ZM138.45,327.65a21.46,21.46,0,1,1,21.46-21.46A21.47,21.47,0,0,1,138.45,327.65Zm235,0A21.46,21.46,0,1,1,395,306.19,21.47,21.47,0,0,1,373.49,327.65Z" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-gray-500">Perdorues Android</p>
+            <h3 className="text-lg font-bold text-gray-900">
+              {stats?.android_tokens || 0}
+            </h3>
+          </div>
+        </div>
       </div>
 
       {/* Rrjeti Kryesor: Formulari & Preview */}
@@ -150,36 +161,53 @@ export default function NotificationsPanel() {
             <div className="text-right mt-1 text-[11px] text-gray-400 font-medium">{body.length}/150</div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* SHTUAR: 3 Kolona per Lidhjet (Produkt, Kategori, Brend) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">Lidh me nje Produkt</label>
+              <label className="block text-sm font-bold text-gray-700 mb-2">Produkti</label>
               <select
-                className="w-full bg-gray-50 text-sm h-[48px] px-4 rounded-xl border-transparent focus:bg-white focus:border-[#f68048] focus:ring-2 focus:ring-[#f68048]/20 transition-all text-gray-900 outline-none font-medium cursor-pointer"
-                value={productId} onChange={(e) => { setProductId(e.target.value); setCategoryId(""); }}
+                className="w-full bg-gray-50 text-sm h-[48px] px-4 rounded-xl border-transparent focus:bg-white focus:border-[#f68048] focus:ring-2 focus:ring-[#f68048]/20 transition-all text-gray-900 outline-none font-medium cursor-pointer disabled:opacity-50"
+                value={productId} onChange={(e) => { setProductId(e.target.value); setCategoryId(""); setBrandId(""); }}
+                disabled={!!categoryId || !!brandId}
               >
-                <option value="">Asnje produkt i lidhur</option>
-                {products.map((p) => (
+                <option value="">Asnje</option>
+                {products?.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             </div>
             
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">Lidh me nje Kategori</label>
+              <label className="block text-sm font-bold text-gray-700 mb-2">Kategoria</label>
               <select
-                className="w-full bg-gray-50 text-sm h-[48px] px-4 rounded-xl border-transparent focus:bg-white focus:border-[#f68048] focus:ring-2 focus:ring-[#f68048]/20 transition-all text-gray-900 outline-none font-medium cursor-pointer"
-                value={categoryId} onChange={(e) => { setCategoryId(e.target.value); setProductId(""); }}
-                disabled={!!productId}
+                className="w-full bg-gray-50 text-sm h-[48px] px-4 rounded-xl border-transparent focus:bg-white focus:border-[#f68048] focus:ring-2 focus:ring-[#f68048]/20 transition-all text-gray-900 outline-none font-medium cursor-pointer disabled:opacity-50"
+                value={categoryId} onChange={(e) => { setCategoryId(e.target.value); setProductId(""); setBrandId(""); }}
+                disabled={!!productId || !!brandId}
               >
-                <option value="">Asnje kategori e lidhur</option>
-                {categories.map((c) => (
+                <option value="">Asnje</option>
+                {categories?.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">Brendi</label>
+              <select
+                className="w-full bg-gray-50 text-sm h-[48px] px-4 rounded-xl border-transparent focus:bg-white focus:border-[#f68048] focus:ring-2 focus:ring-[#f68048]/20 transition-all text-gray-900 outline-none font-medium cursor-pointer disabled:opacity-50"
+                value={brandId} onChange={(e) => { setBrandId(e.target.value); setProductId(""); setCategoryId(""); }}
+                disabled={!!productId || !!categoryId}
+              >
+                <option value="">Asnje</option>
+                {brands?.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
               </select>
             </div>
           </div>
 
-          {productId && selectedProduct?.image_url && (
+          {/* SHTUAR: Shfaqet per cilindo element (Produkt/Kategori/Brand) qe ka image_url */}
+          {selectedEntity?.image_url && (
             <div className="pt-2">
               <label className="flex items-center gap-3 cursor-pointer group bg-gray-50 p-4 rounded-xl border border-gray-100 hover:border-[#f68048]/30 transition-all">
                 <div className="relative inline-block w-10 h-6">
@@ -187,7 +215,7 @@ export default function NotificationsPanel() {
                   <div className="w-10 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#f68048]"></div>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-sm font-bold text-gray-800">Bashkengjit Imazhin e Produktit</span>
+                  <span className="text-sm font-bold text-gray-800">Bashkengjit Imazhin e Lidhur</span>
                 </div>
               </label>
             </div>
@@ -208,11 +236,9 @@ export default function NotificationsPanel() {
         {/* Djathtas: Prezantimi Live duke perdorur komponentin IphoneMockup */}
         <div className="lg:col-span-5 flex justify-end mt-[-100px]">
           <IphoneMockup>
-            {/* Njoftimi Kompakt i Mbi-vendosur */}
             <div className="absolute top-[60px] left-[12px] right-[12px] z-10 animate-in slide-in-from-bottom-4 fade-in duration-500">
               <div className="bg-[#2c2c2e]/60 backdrop-blur-2xl rounded-[24px] p-[12px] shadow-[0_8px_30px_rgb(0,0,0,0.3)] border border-white/10 flex items-center gap-3">
                 
-                {/* Imazhi / Ikona e App-it */}
                 <div className="flex-shrink-0">
                   <img 
                     src="/adaptive-icon.png" 
@@ -221,7 +247,6 @@ export default function NotificationsPanel() {
                   />
                 </div>
 
-                {/* Teksti */}
                 <div className="flex-1 min-w-0 flex flex-col justify-center">
                   <div className="flex items-center justify-between">
                     <h4 className="text-[14px] font-semibold text-white truncate">
@@ -233,12 +258,12 @@ export default function NotificationsPanel() {
                   </p>
                 </div>
                 
-                {/* Imazhi bashkengjitur */}
-                {includeImage && productId && selectedProduct?.image_url && (
+                {/* SHTUAR: Përdorim Imazhin nga cila do qe eshte zgjedhur (selectedEntity) */}
+                {includeImage && selectedEntity?.image_url && (
                   <div className="flex-shrink-0 ml-1">
                     <div className="w-[38px] h-[38px] bg-white/10 rounded-[8px] overflow-hidden shadow-sm">
                       <img 
-                        src={selectedProduct.image_url} 
+                        src={selectedEntity.image_url} 
                         alt="thumbnail" 
                         className="w-full h-full object-cover"
                       />
@@ -274,7 +299,7 @@ export default function NotificationsPanel() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {history.length === 0 ? (
+              {!history || history.length === 0 ? (
                 <tr><td colSpan="4" className="text-center py-8 text-gray-400 text-sm font-medium">Nuk ka ende njoftime te derguara.</td></tr>
               ) : (
                 history.map((item) => (
@@ -292,9 +317,18 @@ export default function NotificationsPanel() {
                       <div className="text-[13px] text-gray-500 truncate max-w-[300px] mt-0.5">{item.body}</div>
                     </td>
                     <td className="px-6 py-4">
+                      {/* SHTUAR: Support ne UI per kategorine dhe brendin në historik. Sigurohuni që endpointi i Historikut në backend i bën JOIN dhe i kthen këto emra */}
                       {item.product_name ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-orange-50 text-[#f68048] text-[12px] font-bold border border-orange-100">
                           Produkti: {item.product_name}
+                        </span>
+                      ) : item.category_name ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 text-blue-500 text-[12px] font-bold border border-blue-100">
+                          Kategoria: {item.category_name}
+                        </span>
+                      ) : item.brand_name ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-50 text-purple-500 text-[12px] font-bold border border-purple-100">
+                          Brendi: {item.brand_name}
                         </span>
                       ) : (
                         <span className="text-[13px] text-gray-400 font-medium">Asnje</span>

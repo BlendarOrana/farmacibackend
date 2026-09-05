@@ -1,19 +1,105 @@
 import { promisePool } from "../lib/db.js";
-import { processAndUpload, deleteFromS3, getUrl } from "../lib/s3.js";
+import { processAndUpload, deleteFromS3 } from "../lib/s3.js";
 import { v4 as uuidv4 } from "uuid";
 
-// ─── CATEGORIES ───────────────────────────────────────────────
+// ==========================================
+// ─── ADMIN DASHBOARD STATS ────────────────
+// ==========================================
+export const getDashboardStats = async (req, res) => {
+  try {
+    const [orders, revenue, products, pendingOrders, users] = await Promise.all([
+      promisePool.query("SELECT COUNT(*) FROM orders"),
+      promisePool.query("SELECT COALESCE(SUM(total_amount), 0) AS total FROM orders WHERE payment_status = 'PAID'"),
+      promisePool.query("SELECT COUNT(*) FROM products"),
+      promisePool.query("SELECT COUNT(*) FROM orders WHERE order_status = 'NEW'"),
+      promisePool.query("SELECT COUNT(*) FROM users") // Added users count
+    ]);
+
+    res.json({
+      total_orders: parseInt(orders.rows[0].count),
+      total_revenue: parseFloat(revenue.rows[0].total),
+      total_products: parseInt(products.rows[0].count),
+      pending_orders: parseInt(pendingOrders.rows[0].count),
+      total_users: parseInt(users.rows[0].count)
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ==========================================
+// ─── APP USERS ────────────────────────────
+// ==========================================
+// ✅ NEW: Allows Admin to view all registered users and their order count
+export const getUsers = async (req, res) => {
+  try {
+    const { rows } = await promisePool.query(`
+      SELECT u.id, u.name, u.email, u.phone_number, u.created_at,
+             COUNT(o.id) AS total_orders
+      FROM users u
+      LEFT JOIN orders o ON u.id = o.user_id
+      GROUP BY u.id
+      ORDER BY u.created_at DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ─── BRANDS ───────────────────────────────
+// ==========================================
+export const getBrands = async (req, res) => {
+  const { rows } = await promisePool.query("SELECT * FROM brands ORDER BY name");
+  res.json(rows);
+};
+
+export const createBrand = async (req, res) => {
+  const { name, image_url } = req.body; // <== Added image_url
+  if (!name) return res.status(400).json({ error: "Brand name is required" });
+  try {
+    const { rows } = await promisePool.query(
+      "INSERT INTO brands (name, image_url) VALUES ($1, $2) RETURNING *",
+      [name, image_url || null] // <== Included into the insertion
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    res.status(400).json({ error: "Brand might already exist", details: err.message });
+  }
+};
+
+export const updateBrand = async (req, res) => {
+  const { name, image_url } = req.body;
+  try {
+    const { rows } = await promisePool.query(
+      "UPDATE brands SET name = $1, image_url = $2 WHERE id = $3 RETURNING *",
+      [name, image_url || null, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Brand not found" });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const deleteBrand = async (req, res) => {
+  await promisePool.query("DELETE FROM brands WHERE id = $1", [req.params.id]);
+  res.json({ message: "Brand deleted" });
+};
+
+// ─── CATEGORIES ───────────────────────────
+// ==========================================
 export const getCategories = async (req, res) => {
   const { rows } = await promisePool.query("SELECT * FROM categories ORDER BY name");
   res.json(rows);
 };
 
 export const createCategory = async (req, res) => {
-  const { name } = req.body;
+  const { name, image_url } = req.body; // <== Added image_url
   if (!name) return res.status(400).json({ error: "Name is required" });
   const { rows } = await promisePool.query(
-    "INSERT INTO categories (name) VALUES ($1) RETURNING *",
-    [name]
+    "INSERT INTO categories (name, image_url) VALUES ($1, $2) RETURNING *",
+    [name, image_url || null] // <== Included into the insertion
   );
   res.status(201).json(rows[0]);
 };
@@ -24,96 +110,17 @@ export const deleteCategory = async (req, res) => {
 };
 
 
-
-
-
-
-
-
-
-
-
-// 1. UPDATE CREATE COUPON
-export const createCoupon = async (req, res) => {
-  // Replaced valid_for_name with valid_for_phone and added target_device_token
-  const { code, discount_type, discount_value, valid_for_phone, max_uses, product_ids, target_device_token } = req.body;
-  
-  if (!code || !discount_type || !discount_value) {
-    return res.status(400).json({ error: "Code, type, and value are required" });
-  }
-
-  try {
-    const { rows } = await promisePool.query(
-      `INSERT INTO coupons (code, discount_type, discount_value, valid_for_phone, max_uses, product_ids, target_device_token)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [
-        code.toUpperCase().trim(), 
-        discount_type, 
-        discount_value, 
-        valid_for_phone || null, 
-        max_uses || null, 
-        product_ids || [], 
-        target_device_token || null
-      ]
-    );
-    res.status(201).json(rows[0]);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// 2. NEW ENDPOINT: GET CUSTOMERS FOR ADMIN TO SELECT
-export const getCustomersForCoupons = async (req, res) => {
-  try {
-    // This fetches unique customers based on their phone number, getting their latest device_token
-    const { rows } = await promisePool.query(`
-      SELECT DISTINCT ON (phone_number) 
-        customer_name, 
-        phone_number, 
-        device_token 
-      FROM orders 
-      WHERE device_token IS NOT NULL 
-      ORDER BY phone_number, created_at DESC
-    `);
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-export const getCoupons = async (req, res) => {
-  try {
-    const { rows } = await promisePool.query(`SELECT * FROM coupons ORDER BY created_at DESC`);
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// ─── PRODUCTS ─────────────────────────────────────────────────
-
-
+// ==========================================
+// ─── PRODUCTS ─────────────────────────────
+// ==========================================
+// ✅ UPDATED: Joining the `brands` table to return `brand_name` for frontend displays
 export const getProducts = async (req, res) => {
   try {
     const result = await promisePool.query(`
       SELECT 
         p.*, 
         c.name AS category_name,
+        b.name AS brand_name,
         pd.discount_type,
         pd.discount_value,
         pd.start_date AS discount_start_date,
@@ -131,15 +138,14 @@ export const getProducts = async (req, res) => {
         AS NUMERIC), 2) AS active_discount_price
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN brands b ON p.brand_id = b.id
       LEFT JOIN product_discounts pd 
         ON p.id = pd.product_id 
         AND pd.start_date <= CURRENT_TIMESTAMP 
         AND pd.end_date >= CURRENT_TIMESTAMP
       ORDER BY p.created_at DESC
     `);
-    
-    const rows = result.rows || result[0];
-    res.json(rows);
+    res.json(result.rows || result[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -151,6 +157,7 @@ export const getProduct = async (req, res) => {
       SELECT 
         p.*, 
         c.name AS category_name,
+        b.name AS brand_name,
         pd.discount_type,
         pd.discount_value,
         pd.start_date AS discount_start_date,
@@ -168,6 +175,7 @@ export const getProduct = async (req, res) => {
         AS NUMERIC), 2) AS active_discount_price
       FROM products p 
       LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN brands b ON p.brand_id = b.id
       LEFT JOIN product_discounts pd 
         ON p.id = pd.product_id 
         AND pd.start_date <= CURRENT_TIMESTAMP 
@@ -177,7 +185,6 @@ export const getProduct = async (req, res) => {
     
     const rows = result.rows || result[0];
     if (!rows.length) return res.status(404).json({ error: "Product not found" });
-    
     res.json(rows[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -185,10 +192,9 @@ export const getProduct = async (req, res) => {
 };
 
 export const createProduct = async (req, res) => {
-  const { name, description, price, quantity, category_id, nutritional_info } = req.body;
+  const { name, description, price, quantity, category_id, brand_id, nutritional_info } = req.body;
   if (!name || !price) return res.status(400).json({ error: "Name and price are required" });
 
-  // Parse the complex supplement rows into JSON
   let parsedNutrition = null;
   if (nutritional_info) {
     try {
@@ -205,22 +211,22 @@ export const createProduct = async (req, res) => {
     image_url = result.url;
   }
 
+  // ✅ UPDATED: Insert brand_id
   const { rows } = await promisePool.query(
-    `INSERT INTO products (name, description, price, quantity, category_id, image_url, nutritional_info)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [name, description || null, price, quantity || 0, category_id || null, image_url, parsedNutrition]
+    `INSERT INTO products (name, description, price, quantity, category_id, brand_id, image_url, nutritional_info)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [name, description || null, price, quantity || 0, category_id || null, brand_id || null, image_url, parsedNutrition]
   );
   res.status(201).json(rows[0]);
 };
 
 export const updateProduct = async (req, res) => {
-  const { name, description, price, quantity, category_id, nutritional_info } = req.body;
+  const { name, description, price, quantity, category_id, brand_id, nutritional_info } = req.body;
   const { id } = req.params;
 
   const existing = await promisePool.query("SELECT * FROM products WHERE id = $1", [id]);
   if (!existing.rows.length) return res.status(404).json({ error: "Product not found" });
 
-  // Parse the updated complex supplement rows
   let parsedNutrition = existing.rows[0].nutritional_info;
   if (nutritional_info !== undefined) {
     if (nutritional_info === 'null' || !nutritional_info) {
@@ -241,78 +247,23 @@ export const updateProduct = async (req, res) => {
     image_url = result.url;
   }
 
+  // ✅ UPDATED: Update brand_id
   const { rows } = await promisePool.query(
-    `UPDATE products SET name=$1, description=$2, price=$3, quantity=$4, category_id=$5, image_url=$6, nutritional_info=$7
-     WHERE id=$8 RETURNING *`,
+    `UPDATE products SET name=$1, description=$2, price=$3, quantity=$4, category_id=$5, brand_id=$6, image_url=$7, nutritional_info=$8
+     WHERE id=$9 RETURNING *`,
     [
       name ?? existing.rows[0].name,
       description ?? existing.rows[0].description,
       price ?? existing.rows[0].price,
       quantity ?? existing.rows[0].quantity,
       category_id ?? existing.rows[0].category_id,
+      brand_id ?? existing.rows[0].brand_id,
       image_url, 
       parsedNutrition, 
       id,
     ]
   );
   res.json(rows[0]);
-};
-
-
-// --- 2. FUNKSIONI I RI: Apliko Zbritje në Grup ---
-export const createBulkDiscount = async (req, res) => {
-  const { product_ids, discount_type, discount_value, start_date, end_date } = req.body;
-
-  if (!product_ids || !product_ids.length || !discount_type || !discount_value || !start_date || !end_date) {
-    return res.status(400).json({ error: "Missing required fields" });
-  }
-
-  try {
-    // First delete any existing discounts for these products
-    await promisePool.query(
-      `DELETE FROM product_discounts WHERE product_id = ANY($1)`,
-      [product_ids]
-    );
-
-    // Build parameterized placeholders: ($1,$2,$3,$4,$5), ($6,$7,$8,$9,$10), ...
-    const placeholders = product_ids.map((_, i) => {
-      const base = i * 5;
-      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`;
-    }).join(", ");
-
-    const values = product_ids.flatMap(id => [
-      id, discount_type, discount_value, start_date, end_date
-    ]);
-
-    await promisePool.query(
-      `INSERT INTO product_discounts (product_id, discount_type, discount_value, start_date, end_date)
-       VALUES ${placeholders}`,
-      values
-    );
-
-    res.status(201).json({ success: true });
-  } catch (err) {
-    console.error("createBulkDiscount error:", err);
-    res.status(500).json({ error: "Server error", details: err.message });
-  }
-};
-
-
-export const removeBulkDiscount = async (req, res) => {
-  const { product_ids } = req.body;
-  if (!product_ids || !product_ids.length) 
-    return res.status(400).json({ error: "No products provided" });
-
-  try {
-    await promisePool.query(
-      `DELETE FROM product_discounts WHERE product_id = ANY($1)`,
-      [product_ids]
-    );
-    res.json({ success: true, message: "Discounts removed" });
-  } catch (err) {
-    console.error("removeBulkDiscount error:", err);
-    res.status(500).json({ error: "Server error" });
-  }
 };
 
 export const updateStock = async (req, res) => {
@@ -339,126 +290,85 @@ export const deleteProduct = async (req, res) => {
   res.json({ message: "Product deleted" });
 };
 
-// ─── ORDERS ───────────────────────────────────────────────────
-// orderControllers.js (ose emri i file-it tuaj të backend-it)
-
-// orderController.js (Backend)
-
-export const getOrders = async (req, res) => {
-  // Shto page dhe limit nga query params, me vlera default 1 dhe 20
-  const { status, payment_status, payment_type, page = 1, limit = 20 } = req.query;
-
-  let query = `
-    SELECT o.*, 
-           c.discount_type AS coupon_discount_type,
-           c.discount_value AS coupon_discount_value,
-           json_agg(
-             json_build_object(
-               'id', oi.id, 
-               'product_id', oi.product_id, 
-               'product_name', p.name, 
-               'quantity', oi.quantity, 
-               'price_at_purchase', oi.price_at_purchase
-             )
-           ) AS items
-    FROM orders o
-    LEFT JOIN order_items oi ON o.id = oi.order_id
-    LEFT JOIN products p ON oi.product_id = p.id
-    LEFT JOIN coupons c ON o.applied_coupon = c.code
-    WHERE 1=1
-  `;
-  const params = [];
-
-  // Filtrat
-  if (status) { params.push(status); query += ` AND o.order_status = $${params.length}`; }
-  if (payment_status) { params.push(payment_status); query += ` AND o.payment_status = $${params.length}`; }
-  if (payment_type) { params.push(payment_type); query += ` AND o.payment_type = $${params.length}`; }
-
-  query += " GROUP BY o.id, c.discount_type, c.discount_value ORDER BY o.created_at DESC";
-
-  // Logjika për Infinite Scroll (Limit & Offset)
-  const offset = (page - 1) * limit;
-  params.push(limit);
-  query += ` LIMIT $${params.length}`;
-  params.push(offset);
-  query += ` OFFSET $${params.length}`;
-
+// ==========================================
+// ─── DISCOUNTS ────────────────────────────
+// ==========================================
+export const createBulkDiscount = async (req, res) => {
+  const { product_ids, discount_type, discount_value, start_date, end_date } = req.body;
+  if (!product_ids || !product_ids.length || !discount_type || !discount_value || !start_date || !end_date) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
   try {
-    // Shënim: zëvendëso 'promisePool' me instancën tënde të databazës
-    const { rows } = await promisePool.query(query, params);
-    res.json(rows);
-  } catch (error) { 
-    res.status(500).json({ error: error.message }); 
+    await promisePool.query(`DELETE FROM product_discounts WHERE product_id = ANY($1)`, [product_ids]);
+    const placeholders = product_ids.map((_, i) => {
+      const base = i * 5;
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`;
+    }).join(", ");
+    const values = product_ids.flatMap(id => [id, discount_type, discount_value, start_date, end_date]);
+    await promisePool.query(
+      `INSERT INTO product_discounts (product_id, discount_type, discount_value, start_date, end_date) VALUES ${placeholders}`,
+      values
+    );
+    res.status(201).json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Server error", details: err.message });
   }
 };
 
-export const getOrder = async (req, res) => {
+export const removeBulkDiscount = async (req, res) => {
+  const { product_ids } = req.body;
+  if (!product_ids || !product_ids.length) return res.status(400).json({ error: "No products provided" });
+  try {
+    await promisePool.query(`DELETE FROM product_discounts WHERE product_id = ANY($1)`, [product_ids]);
+    res.json({ success: true, message: "Discounts removed" });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+// ==========================================
+// ─── COUPONS ──────────────────────────────
+// ==========================================
+export const getCustomersForCoupons = async (req, res) => {
+  try {
+    const { rows } = await promisePool.query(`
+      SELECT id, name, email, phone_number, created_at FROM users ORDER BY created_at DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const createCoupon = async (req, res) => {
+  const { code, discount_type, discount_value, user_id, max_uses, product_ids } = req.body;
+  if (!code || !discount_type || !discount_value) {
+    return res.status(400).json({ error: "Code, type, and value are required" });
+  }
   try {
     const { rows } = await promisePool.query(
-      `SELECT o.*, 
-              c.discount_type AS coupon_discount_type,
-              c.discount_value AS coupon_discount_value,
-              json_agg(
-                json_build_object(
-                  'id', oi.id, 
-                  'product_id', oi.product_id, 
-                  'product_name', p.name, 
-                  'quantity', oi.quantity, 
-                  'price_at_purchase', oi.price_at_purchase
-                )
-              ) AS items
-      FROM orders o
-      LEFT JOIN order_items oi ON o.id = oi.order_id
-      LEFT JOIN products p ON oi.product_id = p.id
-      LEFT JOIN coupons c ON o.applied_coupon = c.code
-      WHERE o.id = $1 
-      GROUP BY o.id, c.discount_type, c.discount_value`,
-      [req.params.id]
+      `INSERT INTO coupons (code, discount_type, discount_value, user_id, max_uses, product_ids)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [code.toUpperCase().trim(), discount_type, discount_value, user_id || null, max_uses || null, product_ids || []]
     );
-    
-    if (!rows.length) return res.status(404).json({ error: "Order not found" });
-    res.json(rows[0]);
-  } catch (error) { 
-    res.status(500).json({ error: error.message }); 
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 };
 
-export const updateOrderStatus = async (req, res) => {
-  const { order_status, payment_status } = req.body;
-  const { id } = req.params;
-
-  const fields = [];
-  const values = [];
-
-  if (order_status) { fields.push(`order_status = $${fields.length + 1}`); values.push(order_status); }
-  if (payment_status) { fields.push(`payment_status = $${fields.length + 1}`); values.push(payment_status); }
-
-  if (!fields.length) return res.status(400).json({ error: "Nothing to update" });
-
-  values.push(id);
-  const { rows } = await promisePool.query(`UPDATE orders SET ${fields.join(", ")} WHERE id = $${values.length} RETURNING *`, values);
-  if (!rows.length) return res.status(404).json({ error: "Order not found" });
-  res.json(rows[0]);
+export const getCoupons = async (req, res) => {
+  try {
+    const { rows } = await promisePool.query(`SELECT * FROM coupons ORDER BY created_at DESC`);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
 
-// ─── DASHBOARD STATS ──────────────────────────────────────────
-export const getDashboardStats = async (req, res) => {
-  const [orders, revenue, products, pendingOrders] = await Promise.all([
-    promisePool.query("SELECT COUNT(*) FROM orders"),
-    promisePool.query("SELECT COALESCE(SUM(total_amount), 0) AS total FROM orders WHERE payment_status = 'PAID'"),
-    promisePool.query("SELECT COUNT(*) FROM products"),
-    promisePool.query("SELECT COUNT(*) FROM orders WHERE order_status = 'NEW'"),
-  ]);
-
-  res.json({
-    total_orders: parseInt(orders.rows[0].count),
-    total_revenue: parseFloat(revenue.rows[0].total),
-    total_products: parseInt(products.rows[0].count),
-    pending_orders: parseInt(pendingOrders.rows[0].count),
-  });
-};
-
-// ─── BANNERS ───────────────────────────────────────────────────
+// ==========================================
+// ─── BANNERS ──────────────────────────────
+// ==========================================
 export const getBanners = async (req, res) => {
   try {
     const { rows } = await promisePool.query(`
@@ -488,7 +398,6 @@ export const updateBanner = async (req, res) => {
   try {
     const { id } = req.params;
     const { product_id, sort_order, active } = req.body;
-
     const existing = await promisePool.query("SELECT * FROM banners WHERE id = $1", [id]);
     if (!existing.rows.length) return res.status(404).json({ error: "Banner not found" });
 
@@ -537,4 +446,126 @@ export const reorderBanners = async (req, res) => {
     await client.query('ROLLBACK');
     res.status(500).json({ error: "Internal server error" });
   } finally { client.release(); }
+};
+
+// ==========================================
+// ─── ORDERS ───────────────────────────────
+// ==========================================
+export const getOrders = async (req, res) => {
+  const { status, payment_status, payment_type, page = 1, limit = 20 } = req.query;
+
+  let query = `
+    SELECT o.*, 
+           c.discount_type AS coupon_discount_type,
+           c.discount_value AS coupon_discount_value,
+           json_agg(
+             json_build_object(
+               'id', oi.id, 
+               'product_id', oi.product_id, 
+               'product_name', p.name, 
+               'quantity', oi.quantity, 
+               'price_at_purchase', oi.price_at_purchase
+             )
+           ) AS items
+    FROM orders o
+    LEFT JOIN order_items oi ON o.id = oi.order_id
+    LEFT JOIN products p ON oi.product_id = p.id
+    LEFT JOIN coupons c ON o.applied_coupon = c.code
+    WHERE 1=1
+  `;
+  const params = [];
+
+  if (status) { params.push(status); query += ` AND o.order_status = $${params.length}`; }
+  if (payment_status) { params.push(payment_status); query += ` AND o.payment_status = $${params.length}`; }
+  if (payment_type) { params.push(payment_type); query += ` AND o.payment_type = $${params.length}`; }
+
+  query += " GROUP BY o.id, c.discount_type, c.discount_value ORDER BY o.created_at DESC";
+
+  const offset = (page - 1) * limit;
+  params.push(limit);
+  query += ` LIMIT $${params.length}`;
+  params.push(offset);
+  query += ` OFFSET $${params.length}`;
+
+  try {
+    const { rows } = await promisePool.query(query, params);
+    res.json(rows);
+  } catch (error) { 
+    res.status(500).json({ error: error.message }); 
+  }
+};
+
+export const getOrder = async (req, res) => {
+  try {
+    const { rows } = await promisePool.query(
+      `SELECT o.*, 
+              c.discount_type AS coupon_discount_type,
+              c.discount_value AS coupon_discount_value,
+              json_agg(
+                json_build_object(
+                  'id', oi.id, 
+                  'product_id', oi.product_id, 
+                  'product_name', p.name, 
+                  'quantity', oi.quantity, 
+                  'price_at_purchase', oi.price_at_purchase
+                )
+              ) AS items
+      FROM orders o
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN products p ON oi.product_id = p.id
+      LEFT JOIN coupons c ON o.applied_coupon = c.code
+      WHERE o.id = $1 
+      GROUP BY o.id, c.discount_type, c.discount_value`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Order not found" });
+    res.json(rows[0]);
+  } catch (error) { 
+    res.status(500).json({ error: error.message }); 
+  }
+};
+
+export const updateOrderStatus = async (req, res) => {
+  const { order_status, payment_status } = req.body;
+  const { id } = req.params;
+  const fields = [];
+  const values = [];
+
+  if (order_status) { fields.push(`order_status = $${fields.length + 1}`); values.push(order_status); }
+  if (payment_status) { fields.push(`payment_status = $${fields.length + 1}`); values.push(payment_status); }
+
+  if (!fields.length) return res.status(400).json({ error: "Nothing to update" });
+
+  values.push(id);
+  const { rows } = await promisePool.query(`UPDATE orders SET ${fields.join(", ")} WHERE id = $${values.length} RETURNING *`, values);
+  if (!rows.length) return res.status(404).json({ error: "Order not found" });
+  res.json(rows[0]);
+};
+
+
+// ==========================================
+// ─── ADMIN STATS: TOP CUSTOMERS ───────────
+// ==========================================
+export const getTopCustomers = async (req, res) => {
+  try {
+    const { rows } = await promisePool.query(`
+      SELECT 
+        u.id AS user_id, 
+        u.name, 
+        u.email, 
+        u.phone_number,
+        COUNT(o.id) AS total_orders, 
+        COALESCE(SUM(o.total_amount), 0) AS lifetime_spent,
+        MAX(o.created_at) AS last_order_date
+      FROM users u
+      JOIN orders o ON u.id = o.user_id
+      WHERE o.payment_status = 'PAID' -- Only count successful orders
+      GROUP BY u.id
+      ORDER BY lifetime_spent DESC
+      LIMIT 20
+    `);
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 };

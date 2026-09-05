@@ -23,8 +23,8 @@ export const TRANSLATIONS = {
   payment_type: { ON_DELIVERY: "PARA NË DORËZIM", CARD: "KARTË BANKARE" }
 };
 
-export const ORDER_STATUSES = ["NEW", "DELIVERED", "CANCELLED"];
-export const PAYMENT_STATUSES = ["PENDING", "PAID", "FAILED"];
+ const ORDER_STATUSES = ["NEW", "DELIVERED", "CANCELLED"];
+ const PAYMENT_STATUSES = ["PENDING", "PAID", "FAILED"];
 export const PAYMENT_TYPES = ["ON_DELIVERY", "CARD"];
 
 export default function OrdersPanel() {

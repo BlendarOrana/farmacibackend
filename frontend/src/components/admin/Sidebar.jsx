@@ -1,22 +1,22 @@
 import { useAuthStore } from "../../stores/useAuthStore";
 import { useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, Package, ShoppingCart,
-  Image as ImageIcon, LogOut, X, Tag, Bell // 1. IMPORT Bell
+  LayoutDashboard, Package, ShoppingCart, Users,
+  Image as ImageIcon, LogOut, X, Tag, Bell
 } from "lucide-react";
 
 const NAV_ITEMS = [
   { key: "dashboard",     label: "Dashboard",      icon: LayoutDashboard },
   { key: "products",      label: "Inventory hub",  icon: Package },
   { key: "orders",        label: "Orders",         icon: ShoppingCart },
+  { key: "users",         label: "App Users",      icon: Users },
   { key: "banners",       label: "Banners",        icon: ImageIcon },
   { key: "coupons",       label: "Coupons",        icon: Tag },
-  // 2. ADD NOTIFICATIONS HERE
   { key: "notifications", label: "Notifications",  icon: Bell }, 
 ];
 
 export default function Sidebar({ sidebarOpen, setSidebarOpen, activePage, onNavigate }) {
-  const { admin, logout } = useAuthStore();
+  const { logout } = useAuthStore();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -35,11 +35,7 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen, activePage, onNav
     `}>
       <div className="h-20 flex items-center justify-between px-6 border-b border-gray-50 shrink-0">
         <div className="flex items-center gap-3">
-          <img
-            src="/logo.png"
-            alt="Brand Logo"
-            className="w-20 h-20 object-contain"
-          />
+          <img src="/logo.png" alt="Brand Logo" className="w-20 h-20 object-contain" />
         </div>
         <button
           className="lg:hidden text-gray-400 hover:text-[#f68048] transition-colors p-2 rounded-full hover:bg-gray-50"
@@ -56,7 +52,7 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen, activePage, onNav
         {NAV_ITEMS.map((item) => {
           const isActive = activePage === item.key;
           return (
-            <button
+             <button
               key={item.key}
               onClick={() => { onNavigate(item.key); setSidebarOpen(false); }}
               className={`

@@ -51,80 +51,7 @@ export const deactivatePushToken = async (req, res) => {
   }
 };
 
-/**
- * Send a notification to all active tokens (Admin Only)
- * Can optionally link to a product_id or category_id
- */
-export const sendNotificationToAll = async (req, res) => {
-  try {
-    const { 
-      title, 
-      body, 
-      product_id, 
-      category_id, 
-      include_image, // Boolean sent from your Admin Dashboard toggle
-      batchSize = 50, 
-      delayMs = 1000 
-    } = req.body;
 
-    if (!title || !body) {
-      return res.status(400).json({ error: 'Title and body are required' });
-    }
-
-    // 1. Prepare routing data for the mobile app navigation
-    const pushData = {};
-
-    if (product_id) pushData.product_id = product_id;
-    if (category_id) pushData.category_id = category_id;
-
-    // 2. Fetch and transform the WebP image to iOS/Android safe JPG on the fly!
-    if (include_image === true && product_id) {
-      const productRes = await promisePool.query(
-        'SELECT image_url FROM products WHERE id = $1',
-        [product_id]
-      );
-      
-      if (productRes.rows.length > 0 && productRes.rows[0].image_url) {
-        const rawWebpUrl = productRes.rows[0].image_url;
-        
-        // Remove https:// since the wsrv.nl proxy prefers domains
-        const domainPathOnly = rawWebpUrl.replace(/^https?:\/\//, '');
-
-        // Encode to ensure safe URL parsing, force the output format to .jpg
-        // Using wsrv.nl ensures our backend/S3 won't get hit by thousands of phone image requests simultaneously!
-        pushData.image_url = `https://wsrv.nl/?url=${encodeURIComponent(domainPathOnly)}&output=jpg`;
-      }
-    }
-
-    // 3. Send push via Expo (Make sure NotificationService extracts data.image_url -> message.image)
-    const result = await NotificationService.sendToAllTokens(
-      title,
-      body,
-      pushData,
-      batchSize,
-      delayMs
-    );
-
-    // 4. Save exactly what we broadcasted to the DB for history
-    await promisePool.query(
-      `INSERT INTO notifications (title, body, product_id, total_sent, total_failed)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [title, body, product_id || null, result.sentCount, result.failedCount]
-    );
-
-    res.status(200).json({
-      message: result.message,
-      stats: {
-        totalTokens: result.totalUsers,
-        sent: result.sentCount,
-        failed: result.failedCount,
-      }
-    });
-  } catch (error) {
-    console.error('Error sending notification:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
 
 
 
@@ -176,9 +103,109 @@ export const getTokenStats = async (req, res) => {
 
 
 
+export const getAppNotifications = async (req, res) => {
+  try {
+    const { rows } = await promisePool.query(
+      `SELECT n.id, n.title, n.body AS description, n.product_id, n.category_id, n.brand_id, 
+              p.image_url AS product_image, c.image_url AS category_image, b.image_url AS brand_image 
+       FROM notifications n
+       LEFT JOIN products p ON n.product_id = p.id
+       LEFT JOIN categories c ON n.category_id = c.id
+       LEFT JOIN brands b ON n.brand_id = b.id
+       ORDER BY n.sent_at DESC
+       LIMIT 30`
+    );
+    res.status(200).json(rows);
+  } catch (error) {
+    console.error('Error fetching mobile app notifications:', error);
+    res.status(500).json({ error: 'Failed to fetch app notifications' });
+  }
+};
 
 
+// ---- ADMIN ENDPOINT TO SEND NOTIFICATIONS ---- //
+export const sendNotificationToAll = async (req, res) => {
+  try {
+    const { 
+      title, 
+      body, 
+      product_id, 
+      category_id, 
+      brand_id,
+      include_image, // Boolean sent from your Admin Dashboard toggle
+      batchSize = 50, 
+      delayMs = 1000 
+    } = req.body;
 
+    if (!title || !body) {
+      return res.status(400).json({ error: 'Title and body are required' });
+    }
+
+    // 1. Prepare routing data for the mobile app navigation (Deep Linking Context)
+    const pushData = {};
+    if (product_id) pushData.product_id = product_id;
+    if (category_id) pushData.category_id = category_id;
+    if (brand_id) pushData.brand_id = brand_id;
+
+    // 2. Resolve target Image dynamically
+    let targetImageUrl = null;
+
+    if (include_image === true) {
+      if (product_id) {
+        const res = await promisePool.query('SELECT image_url FROM products WHERE id = $1', [product_id]);
+        targetImageUrl = res.rows[0]?.image_url;
+      } else if (category_id) {
+        const res = await promisePool.query('SELECT image_url FROM categories WHERE id = $1', [category_id]);
+        targetImageUrl = res.rows[0]?.image_url;
+      } else if (brand_id) {
+        const res = await promisePool.query('SELECT image_url FROM brands WHERE id = $1', [brand_id]);
+        targetImageUrl = res.rows[0]?.image_url;
+      }
+
+      if (targetImageUrl) {
+        // Optimize push payload size and convert to safe .jpg using wsrv.nl proxy
+        const domainPathOnly = targetImageUrl.replace(/^https?:\/\//, '');
+        pushData.image_url = `https://wsrv.nl/?url=${encodeURIComponent(domainPathOnly)}&output=jpg&w=500`;
+      }
+    }
+
+    // 3. Send push via Expo
+    const result = await NotificationService.sendToAllTokens(
+      title,
+      body,
+      pushData,
+      batchSize,
+      delayMs
+    );
+
+    // 4. Save exactly what we broadcasted to the DB for history
+    await promisePool.query(
+      `INSERT INTO notifications (title, body, product_id, category_id, brand_id, total_sent, total_failed)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        title, 
+        body, 
+        product_id || null, 
+        category_id || null, 
+        brand_id || null, 
+        result.sentCount, 
+        result.failedCount
+      ]
+    );
+
+    res.status(200).json({
+      message: result.message,
+      stats: {
+        totalTokens: result.totalUsers,
+        sent: result.sentCount,
+        failed: result.failedCount,
+      }
+    });
+  } catch (error) {
+    console.error('Error sending notification:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
 
 
 

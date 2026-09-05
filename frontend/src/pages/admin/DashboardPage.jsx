@@ -5,11 +5,10 @@ import DashboardLayout from "../../components/admin/DashboardLayout";
 import StatsCards from "../../components/admin/StatsCards";
 import ProductsPanel from "../../components/admin/ProductsPanel";
 import OrdersPanel from "../../components/admin/OrdersPanel";
-import CategoriesPanel from "../../components/admin/CategoriesPanel";
 import BannersPanel from "../../components/admin/BannersPanel";
 import CouponsPanel from "../../components/admin/CouponsPanel";
-// 1. ADD THIS IMPORT
-import NotificationsPanel from "../../components/admin/NotificationsPanel"; 
+import NotificationsPanel from "../../components/admin/NotificationsPanel";
+import UsersPanel from "../../components/admin/UsersPanel";
 
 export default function DashboardPage() {
   const [page, setPage] = useState("dashboard");
@@ -29,11 +28,10 @@ export default function DashboardPage() {
       case "dashboard":     return <DashboardHome />;
       case "products":      return <ProductsPanel />;
       case "orders":        return <OrdersPanel />;
-      case "categories":    return <CategoriesPanel />;
       case "banners":       return <BannersPanel />;
       case "coupons":       return <CouponsPanel />;
-      // 2. ADD THIS CASE
       case "notifications": return <NotificationsPanel />;
+      case "users":         return <UsersPanel />;
       default:              return <DashboardHome />;
     }
   };

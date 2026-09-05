@@ -10,7 +10,7 @@ export const useAuthStore = create((set) => ({
   login: async (email, password) => {
     set({ isLoading: true, error: null });
     try {
-      const { data } = await axiosInstance.post("/auth/login", { email, password });
+      const { data } = await axiosInstance.post("/auth/admin/login", { email, password });
       set({ admin: data, isLoading: false });
       return { success: true };
     } catch (err) {
@@ -30,7 +30,7 @@ export const useAuthStore = create((set) => ({
   getMe: async () => {
     set({ isCheckingAuth: true });
     try {
-      const { data } = await axiosInstance.get("/auth/me");
+      const { data } = await axiosInstance.get("/auth/admin/me");
       set({ admin: data, isCheckingAuth: false });
     } catch (_) {
       set({ admin: null, isCheckingAuth: false }); 

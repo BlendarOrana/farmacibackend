@@ -5,27 +5,25 @@ import {
   deactivatePushToken,
   sendNotificationToAll,
   getNotificationHistory,
-  getTokenStats
+  getTokenStats,
+  getAppNotifications // <--- Import it!
 } from '../controllers/notification.controller.js';
 
 const router = express.Router();
 
 // ==========================================
-
-// Called automatically when the app starts
+// 📱 MOBILE APP ROUTES (Public/Anonymous)
+// ==========================================
 router.post('/register', registerPushToken);
-
-// Called if user turns off notifications in app settings
 router.post('/deactivate', deactivatePushToken);
+// The missing route allowing Mobile App to fetch history lists!
+router.get('/app-history', getAppNotifications); 
 
 // ==========================================
 // 💻 ADMIN DASHBOARD ROUTES (Auth Required)
 // ==========================================
-// Broadcast a notification to all devices
-router.post('/send-all', protectRoute, adminRoute, sendNotificationToAll);
-
-// View stats and history of sent notifications
-router.get('/history', protectRoute, adminRoute, getNotificationHistory);
-router.get('/stats', protectRoute, adminRoute, getTokenStats);
+router.post('/send-all', adminRoute, sendNotificationToAll);
+router.get('/history', adminRoute, getNotificationHistory);
+router.get('/stats',  adminRoute, getTokenStats);
 
 export default router;

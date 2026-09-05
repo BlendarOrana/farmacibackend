@@ -37,7 +37,7 @@ function CouponFormModal({ onClose, onSuccess }) {
   const [selectedCat, setSelectedCat] = useState("");
   const [selectedProducts, setSelectedProducts] = useState([]);
   
-  // Klienti specifik
+  // Klienti specifik (Përdorim ID-në tani)
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
 
   useEffect(() => {
@@ -64,16 +64,14 @@ function CouponFormModal({ onClose, onSuccess }) {
       product_ids = selectedProducts;
     }
 
-    // Gjej klientin e zgjedhur për të marrë të dhënat e tij
-const selectedCustomer = customers?.find(c => c.phone_number === selectedCustomerId);
+    // ✅ FIXED: Payload tani përdor saktë "user_id" bazuar në skemën e re 
     const payload = {
       code: form.code.toUpperCase().trim(),
       discount_type: form.discount_type,
       discount_value: parseFloat(form.discount_value),
       max_uses: form.max_uses ? parseInt(form.max_uses) : null,
       product_ids: product_ids,
-      target_device_token: selectedCustomer?.device_token || null,
-      valid_for_phone: selectedCustomer?.phone_number || null,
+      user_id: selectedCustomerId ? parseInt(selectedCustomerId) : null, // Vendos user_id ose NULL nëse bëhet fjalë për të gjithë
     };
 
     const result = await createCoupon(payload);
@@ -160,11 +158,12 @@ const selectedCustomer = customers?.find(c => c.phone_number === selectedCustome
               <label className={labelCls}>Për Klientin <span className="text-gray-400 normal-case">(Opsional)</span></label>
               <select className={inputCls} value={selectedCustomerId} onChange={(e) => setSelectedCustomerId(e.target.value)}>
                 <option value="">-- Të gjithë --</option>
-     {customers?.map(c => (
-  <option key={c.phone_number} value={c.phone_number}>
-    {c.customer_name} - {c.phone_number}
-  </option>
-))}
+                {/* ✅ FIXED: Map users properties specifically mapped to DB table `users` */}
+                {customers?.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} {c.email ? `- ${c.email}` : ''}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
