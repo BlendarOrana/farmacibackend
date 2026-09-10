@@ -30,6 +30,7 @@ export default function CategoriesManagerModal({ onClose, showToast }) {
   const { categories, createCategory, deleteCategory } = useAdminStore();
   const [name, setName] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null); // ✅ Tracking Raw file
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -40,6 +41,11 @@ export default function CategoriesManagerModal({ onClose, showToast }) {
       showToast("Ju lutem zgjidhni një fajll imazhi.", "error");
       return;
     }
+    
+    // Store original file object for backend
+    setSelectedFile(file);
+    
+    // Convert preview string for the local browser display
     const reader = new FileReader();
     reader.onloadend = () => setImageUrl(reader.result);
     reader.readAsDataURL(file);
@@ -47,6 +53,7 @@ export default function CategoriesManagerModal({ onClose, showToast }) {
 
   const clearImage = () => {
     setImageUrl("");
+    setSelectedFile(null); // Clear file
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -54,7 +61,15 @@ export default function CategoriesManagerModal({ onClose, showToast }) {
     e.preventDefault();
     if (!name.trim()) return;
     setSaving(true);
-    const result = await createCategory({ name: name.trim(), image_url: imageUrl.trim() });
+    
+    // ✅ Form Data usage allows Multer to grab req.file
+    const formData = new FormData();
+    formData.append("name", name.trim());
+    if (selectedFile) {
+      formData.append("image", selectedFile);
+    }
+
+    const result = await createCategory(formData);
     setSaving(false);
 
     if (result.success) {
@@ -70,8 +85,11 @@ export default function CategoriesManagerModal({ onClose, showToast }) {
     setSaving(true);
     const result = await deleteCategory(id);
     setSaving(false);
-    if (result.success) { showToast("Category deleted permanently."); }
-    else showToast(result.message, "error");
+    if (result.success) { 
+      showToast("Category deleted permanently."); 
+    } else {
+      showToast(result.message, "error");
+    }
   };
 
   return (

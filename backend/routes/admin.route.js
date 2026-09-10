@@ -29,13 +29,13 @@ router.get("/customers-for-coupons", getCustomersForCoupons);
 
 // ─── BRANDS ───
 router.get("/brands", getBrands);
-router.post("/brands", upload.single("image"), createBrand); // ✅ Added here
-router.put("/brands/:id", upload.single("image"), updateBrand); // ✅ Added here just in case!
+router.post("/brands", upload.single("image"), createBrand); 
+router.put("/brands/:id", upload.single("image"), updateBrand);
 router.delete("/brands/:id", deleteBrand);
 
 // ─── CATEGORIES ───
 router.get("/categories", getCategories);
-router.post("/categories", createCategory);
+router.post("/categories", upload.single("image"), createCategory); // ✅ Added upload middleware here
 router.delete("/categories/:id", deleteCategory);
 
 // ─── PRODUCTS & DISCOUNTS ───

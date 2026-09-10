@@ -105,16 +105,35 @@ export const createBrand = async (req, res) => {
 
 export const updateBrand = async (req, res) => {
   const { name, image_url } = req.body;
+  const file = req.file;
+
   try {
+    let finalImageUrl = image_url || null; // Fallback to existing url text if no new file provided
+
+    // If a new file is uploaded, process and upload it
+    if (file) {
+      const imageBuffer = file.buffer;
+      const s3Key = `brands/${uuidv4()}.webp`;
+      const uploadResult = await processAndUpload(imageBuffer, s3Key);
+      finalImageUrl = uploadResult.url;
+    }
+
     const { rows } = await promisePool.query(
       "UPDATE brands SET name = $1, image_url = $2 WHERE id = $3 RETURNING *",
-      [name, image_url || null, req.params.id]
+      [name, finalImageUrl, req.params.id]
     );
+
     if (!rows.length) return res.status(404).json({ error: "Brand not found" });
     res.json(rows[0]);
   } catch (err) {
+    console.error("Error updating brand:", err);
     res.status(500).json({ error: err.message });
   }
+};
+
+export const deleteBrand = async (req, res) => {
+  await promisePool.query("DELETE FROM brands WHERE id = $1", [req.params.id]);
+  res.json({ message: "Brand deleted" });
 };
 
 export const deleteBrand = async (req, res) => {
@@ -130,14 +149,39 @@ export const getCategories = async (req, res) => {
 };
 
 export const createCategory = async (req, res) => {
-  const { name, image_url } = req.body; // <== Added image_url
-  if (!name) return res.status(400).json({ error: "Name is required" });
-  const { rows } = await promisePool.query(
-    "INSERT INTO categories (name, image_url) VALUES ($1, $2) RETURNING *",
-    [name, image_url || null] // <== Included into the insertion
-  );
-  res.status(201).json(rows[0]);
+  const { name } = req.body; 
+  const file = req.file; // Caught by Multer
+
+  if (!name) {
+    return res.status(400).json({ error: "Category name is required" });
+  }
+
+  try {
+    let finalImageUrl = null;
+
+    if (file) {
+      const imageBuffer = file.buffer;
+      const s3Key = `categories/${uuidv4()}.webp`; // Dynamic Category folder S3 key
+      const uploadResult = await processAndUpload(imageBuffer, s3Key);
+      finalImageUrl = uploadResult.url;
+    }
+
+    const { rows } = await promisePool.query(
+      "INSERT INTO categories (name, image_url) VALUES ($1, $2) RETURNING *",
+      [name, finalImageUrl]
+    );
+    
+    res.status(201).json(rows[0]);
+
+  } catch (err) {
+    console.error("Error creating category:", err);
+    if (err.code === "23505") {
+      return res.status(400).json({ error: "This category already exists." });
+    }
+    res.status(500).json({ error: err.message });
+  }
 };
+
 
 export const deleteCategory = async (req, res) => {
   await promisePool.query("DELETE FROM categories WHERE id = $1", [req.params.id]);
