@@ -54,9 +54,6 @@ export const getBrands = async (req, res) => {
   res.json(rows);
 };
 
-import { promisePool } from "../lib/db.js";
-import { processAndUpload, deleteFromS3 } from "../lib/s3.js";
-import { v4 as uuidv4 } from "uuid";
 
 export const createBrand = async (req, res) => {
   // Multer puts text fields in req.body, and the file in req.file
