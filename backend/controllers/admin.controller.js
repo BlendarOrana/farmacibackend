@@ -131,10 +131,7 @@ export const updateBrand = async (req, res) => {
   }
 };
 
-export const deleteBrand = async (req, res) => {
-  await promisePool.query("DELETE FROM brands WHERE id = $1", [req.params.id]);
-  res.json({ message: "Brand deleted" });
-};
+
 
 export const deleteBrand = async (req, res) => {
   await promisePool.query("DELETE FROM brands WHERE id = $1", [req.params.id]);
