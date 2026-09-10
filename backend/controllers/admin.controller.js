@@ -54,19 +54,57 @@ export const getBrands = async (req, res) => {
   res.json(rows);
 };
 
+import { promisePool } from "../lib/db.js";
+import { processAndUpload, deleteFromS3 } from "../lib/s3.js";
+import { v4 as uuidv4 } from "uuid";
+
 export const createBrand = async (req, res) => {
-  const { name, image_url } = req.body; // <== Added image_url
-  if (!name) return res.status(400).json({ error: "Brand name is required" });
+  // Multer puts text fields in req.body, and the file in req.file
+  const { name } = req.body;
+  const file = req.file; 
+
+  if (!name) {
+    return res.status(400).json({ error: "Brand name is required" });
+  }
+
   try {
+    let finalImageUrl = null;
+
+    // 1. Process the File if one was uploaded
+    if (file) {
+      // Multer already gives us the raw binary Buffer! No Base64 decoding needed.
+      const imageBuffer = file.buffer;
+
+      // Generate a unique S3 key
+      const s3Key = `brands/${uuidv4()}.webp`;
+
+      // Pass the Buffer and Key to your S3 utility to compress and upload
+      const uploadResult = await processAndUpload(imageBuffer, s3Key);
+
+      // Grab the safe CloudFront URL returned by your utility
+      finalImageUrl = uploadResult.url;
+    }
+
+    // 2. Insert into the database
     const { rows } = await promisePool.query(
       "INSERT INTO brands (name, image_url) VALUES ($1, $2) RETURNING *",
-      [name, image_url || null] // <== Included into the insertion
+      [name, finalImageUrl]
     );
+
     res.status(201).json(rows[0]);
+
   } catch (err) {
-    res.status(400).json({ error: "Brand might already exist", details: err.message });
+    console.error("Error creating brand:", err);
+    
+    // Postgres Duplicate Key Error Code
+    if (err.code === "23505") {
+      return res.status(400).json({ error: "This brand already exists." });
+    }
+    
+    res.status(500).json({ error: "Failed to create brand", details: err.message });
   }
 };
+
 
 export const updateBrand = async (req, res) => {
   const { name, image_url } = req.body;

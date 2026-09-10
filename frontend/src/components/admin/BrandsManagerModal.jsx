@@ -26,9 +26,12 @@ function AvatarImage({ src, name, size = "w-8 h-8", shape = "rounded-md", fit = 
 
 export default function BrandsManagerModal({ onClose, showToast }) {
   const { brands, createBrand, deleteBrand } = useAdminStore();
+  
   const [name, setName] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
+  const [imageFile, setImageFile] = useState(null); // Holds the actual File
+  const [previewUrl, setPreviewUrl] = useState(""); // Holds the local preview URL
   const [saving, setSaving] = useState(false);
+  
   const fileInputRef = useRef(null);
 
   const handleImageUpload = (e) => {
@@ -38,13 +41,18 @@ export default function BrandsManagerModal({ onClose, showToast }) {
       showToast("Ju lutem zgjidhni një fajll imazhi.", "error");
       return;
     }
-    const reader = new FileReader();
-    reader.onloadend = () => setImageUrl(reader.result);
-    reader.readAsDataURL(file);
+    
+    // Save the raw file to state for the upload
+    setImageFile(file);
+    
+    // Create a highly efficient temporary URL for the image preview
+    setPreviewUrl(URL.createObjectURL(file));
   };
 
   const clearImage = () => {
-    setImageUrl("");
+    setImageFile(null);
+    if (previewUrl) URL.revokeObjectURL(previewUrl); // Cleanup memory
+    setPreviewUrl("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -52,7 +60,19 @@ export default function BrandsManagerModal({ onClose, showToast }) {
     e.preventDefault();
     if (!name.trim()) return;
     setSaving(true);
-    const result = await createBrand({ name: name.trim(), image_url: imageUrl.trim() });
+
+    // 🚀 NEW: Create FormData instead of a JSON object
+    const formData = new FormData();
+    formData.append("name", name.trim());
+    
+    if (imageFile) {
+      // The word "image" here MUST MATCH upload.single("image") in your backend route!
+      formData.append("image", imageFile); 
+    }
+
+    // Send the FormData to your Zustand store
+    const result = await createBrand(formData);
+    
     setSaving(false);
 
     if (result.success) {
@@ -68,8 +88,11 @@ export default function BrandsManagerModal({ onClose, showToast }) {
     setSaving(true);
     const result = await deleteBrand(id);
     setSaving(false);
-    if (result.success) { showToast("Brand has been successfully removed."); }
-    else showToast(result.message, "error");
+    if (result.success) { 
+      showToast("Brand has been successfully removed."); 
+    } else {
+      showToast(result.message, "error");
+    }
   };
 
   return (
@@ -100,13 +123,14 @@ export default function BrandsManagerModal({ onClose, showToast }) {
                 title="Ngarko logo"
                 className="relative shrink-0 w-14 h-14 rounded-2xl bg-white border border-dashed border-gray-200 hover:border-[#f68048] overflow-hidden flex items-center justify-center shadow-sm transition-colors p-1.5 group/upload"
               >
-                {imageUrl ? (
-                  <img src={imageUrl} alt="Parapamje" className="w-full h-full object-contain" />
+                {/* Check against previewUrl instead of imageUrl */}
+                {previewUrl ? (
+                  <img src={previewUrl} alt="Parapamje" className="w-full h-full object-contain" />
                 ) : (
                   <ImagePlus size={18} className="text-gray-300 group-hover/upload:text-[#f68048] transition-colors" strokeWidth={1.5} />
                 )}
               </button>
-              {imageUrl && (
+              {previewUrl && (
                 <button
                   type="button"
                   onClick={clearImage}
@@ -121,7 +145,6 @@ export default function BrandsManagerModal({ onClose, showToast }) {
                 placeholder="Emri i brendit të ri..."
                 value={name}
                 onChange={e => setName(e.target.value)}
-                autoFocus
               />
             </div>
 

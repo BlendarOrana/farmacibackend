@@ -29,8 +29,8 @@ router.get("/customers-for-coupons", getCustomersForCoupons);
 
 // ─── BRANDS ───
 router.get("/brands", getBrands);
-router.post("/brands", createBrand);
-router.put("/brands/:id", updateBrand);
+router.post("/brands", upload.single("image"), createBrand); // ✅ Added here
+router.put("/brands/:id", upload.single("image"), updateBrand); // ✅ Added here just in case!
 router.delete("/brands/:id", deleteBrand);
 
 // ─── CATEGORIES ───
