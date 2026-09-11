@@ -320,7 +320,7 @@ export const createProduct = async (req, res) => {
 
 export const updateProduct = async (req, res) => {
   const { id } = req.params;
-  const { name, description, price, quantity, category_id, brand_id, nutritional_info } = req.body;
+  const { name, description, price, quantity, category_id, brand_id, nutritional_info, main_image_updated, existing_gallery } = req.body;
 
   let parsedNutrition = null;
   if (nutritional_info && nutritional_info !== "null") {
@@ -331,10 +331,19 @@ export const updateProduct = async (req, res) => {
     }
   }
 
-  // Get current product state
+  // Marrim të dhënat aktuale të produktit
   const currentProd = await promisePool.query(`SELECT image_url, gallery_images FROM products WHERE id = $1`, [id]);
+  if (!currentProd.rows.length) return res.status(404).json({ error: "Product not found" });
+
   let image_url = currentProd.rows[0].image_url;
-  let gallery_images = currentProd.rows[0].gallery_images || [];
+  
+  // Lexojmë cilat foto të galerisë vendosi t'i mbajë përdoruesi nga frontend-i
+  let final_gallery = [];
+  try {
+    final_gallery = existing_gallery ? JSON.parse(existing_gallery) : [];
+  } catch (e) {
+    final_gallery = currentProd.rows[0].gallery_images || [];
+  }
 
   const processImage = async (buffer) => {
     const key = `products/${uuidv4()}.webp`;
@@ -342,13 +351,23 @@ export const updateProduct = async (req, res) => {
     return result.url;
   };
 
-  // ✅ If new images are uploaded, overwrite existing ones
+  // ✅ Kontrollojmë nëse ka file të reja të ngarkuara
   if (req.files && req.files.length > 0) {
-    image_url = await processImage(req.files[0].buffer);
-    gallery_images = [];
-    if (req.files.length > 1) {
-      const galleryPromises = req.files.slice(1).map(file => processImage(file.buffer));
-      gallery_images = await Promise.all(galleryPromises);
+    if (main_image_updated === 'true') {
+      // Nëse frontend-i thotë që imazhi kryesor ndryshoi, file i parë është imazhi kryesor
+      image_url = await processImage(req.files[0].buffer);
+      
+      // Nëse ka file të tjera, ato shtohen në galeri
+      if (req.files.length > 1) {
+        const galleryPromises = req.files.slice(1).map(file => processImage(file.buffer));
+        const newGalleryImages = await Promise.all(galleryPromises);
+        final_gallery = [...final_gallery, ...newGalleryImages];
+      }
+    } else {
+      // Nëse imazhi kryesor NUK ndryshoi, TË GJITHA file-t e reja shkojnë në galeri
+      const galleryPromises = req.files.map(file => processImage(file.buffer));
+      const newGalleryImages = await Promise.all(galleryPromises);
+      final_gallery = [...final_gallery, ...newGalleryImages];
     }
   }
 
@@ -356,10 +375,9 @@ export const updateProduct = async (req, res) => {
     `UPDATE products 
      SET name = $1, description = $2, price = $3, quantity = $4, category_id = $5, brand_id = $6, image_url = $7, nutritional_info = $8, gallery_images = $9
      WHERE id = $10 RETURNING *`,
-    [name, description || null, price, quantity || 0, category_id || null, brand_id || null, image_url, parsedNutrition, gallery_images, id]
+    [name, description || null, price, quantity || 0, category_id || null, brand_id || null, image_url, parsedNutrition, final_gallery, id]
   );
 
-  if (!rows.length) return res.status(404).json({ error: "Product not found" });
   res.json(rows[0]);
 };
 

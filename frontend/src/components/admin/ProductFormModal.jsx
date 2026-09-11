@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useAdminStore } from "../../stores/useAdminStore";
-import { X, UploadCloud, CheckCircle2, Plus, Trash2, Image as ImageIcon } from "lucide-react"; 
+import { X, UploadCloud, CheckCircle2, Plus, Trash2 } from "lucide-react"; 
 
 const EMPTY_FORM = { 
   name: "", 
@@ -14,12 +14,17 @@ const EMPTY_FORM = {
 export default function ProductFormModal({ target, categories, brands, onClose, onSuccess, onError }) {
   const { createProduct, updateProduct } = useAdminStore();
   const [form, setForm] = useState(EMPTY_FORM);
-  
-  // ✅ Changed to handle Arrays
-  const [imageFiles, setImageFiles] = useState([]);
-  const [existingImages, setExistingImages] = useState([]); // Keeps track of URLs from DB
   const [saving, setSaving] = useState(false);
-  const fileRef = useRef();
+  
+  // ✅ Menaxhimi i ndarë i Imazhit Kryesor dhe Galerisë
+  const [mainImageFile, setMainImageFile] = useState(null);
+  const [existingMainImage, setExistingMainImage] = useState(null);
+  
+  const [galleryFiles, setGalleryFiles] = useState([]);
+  const [existingGallery, setExistingGallery] = useState([]);
+
+  const mainFileRef = useRef();
+  const galleryFileRef = useRef();
 
   const [hasNutrition, setHasNutrition] = useState(false);
   const [nutritionData, setNutritionData] = useState({
@@ -39,13 +44,11 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
         brand_id: target.brand_id || "" 
       });
       
-      // ✅ Combine main image + gallery images for preview
-      const existing = [];
-      if (target.image_url) existing.push(target.image_url);
+      // Plotësojmë imazhet ekzistuese nga databaza
+      if (target.image_url) setExistingMainImage(target.image_url);
       if (target.gallery_images && Array.isArray(target.gallery_images)) {
-        existing.push(...target.gallery_images);
+        setExistingGallery(target.gallery_images);
       }
-      setExistingImages(existing);
 
       if (target.nutritional_info) {
         setHasNutrition(true);
@@ -60,22 +63,28 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
     }
   }, [target]);
 
-  const handleImages = (e) => {
+  // Handlers për imazhet
+  const handleMainImage = (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setMainImageFile(e.target.files[0]);
+    }
+  };
+
+  const handleGalleryImages = (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
-    setImageFiles(files);
-    setExistingImages([]); // Clear existing previews since backend will overwrite on upload
+    setGalleryFiles(prev => [...prev, ...files]);
   };
 
-  const removeNewImage = (index) => {
-    const dt = new DataTransfer();
-    imageFiles.forEach((file, i) => {
-      if (index !== i) dt.items.add(file);
-    });
-    fileRef.current.files = dt.files;
-    setImageFiles(Array.from(dt.files));
+  const removeGalleryFile = (index) => {
+    setGalleryFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  const removeExistingGalleryImage = (index) => {
+    setExistingGallery(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Handlers për vlerat ushqyese
   const handleNutritionChange = (field, value) => {
     setNutritionData(prev => ({ ...prev, [field]: value }));
   };
@@ -100,11 +109,6 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
       if (v !== "" && v !== null) fd.append(k, v);
     });
 
-    // ✅ Append multiple images (Must match "images" in backend upload.array("images"))
-    imageFiles.forEach((file) => {
-      fd.append("images", file);
-    });
-
     if (hasNutrition) {
       const cleanNutrients = nutritionData.nutrients
         .filter(n => n.name.trim() !== "")
@@ -114,6 +118,19 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
     } else {
       fd.append("nutritional_info", "null");
     }
+
+    // ✅ Dërgojmë informacion tek backend se çfarë kemi përditësuar
+    const isMainUpdated = mainImageFile ? "true" : "false";
+    fd.append("main_image_updated", isMainUpdated);
+    fd.append("existing_gallery", JSON.stringify(existingGallery));
+
+    // Shtojmë imazhet në radhën e duhur për backend-in
+    if (mainImageFile) {
+      fd.append("images", mainImageFile);
+    }
+    galleryFiles.forEach((file) => {
+      fd.append("images", file);
+    });
 
     const result = target
       ? await updateProduct(target.id, fd)
@@ -131,11 +148,6 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
   const INP = "w-full bg-gray-50 rounded-xl px-4 py-3.5 text-sm text-gray-900 border border-gray-100 focus:bg-white focus:border-[#f68048] focus:ring-4 focus:ring-[#f68048]/10 transition-all outline-none placeholder:text-gray-300 font-medium";
   const INP_SM = "min-w-0 bg-white rounded-lg px-3 py-2 text-sm text-gray-900 border border-gray-200 focus:border-[#f68048] focus:ring-2 focus:ring-[#f68048]/10 transition-all outline-none placeholder:text-gray-300 font-medium";
   
-  // Decide which previews to show (Existing DB URLs vs newly uploaded local files)
-  const previewsToRender = imageFiles.length > 0 
-    ? imageFiles.map(f => URL.createObjectURL(f)) 
-    : existingImages;
-
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[999] flex items-center justify-center p-4">
       <div className="absolute inset-0 z-[-1]" onClick={onClose} />
@@ -155,61 +167,85 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
 
         <div className="overflow-y-auto p-8 pt-6 pb-2 space-y-6 form-custom-scrollbar flex-1">
           
-          {/* ✅ UPDATED IMAGE GALLERY UI */}
-          <div>
-            <label className={LBL}>Imazhet e Produktit (1 Kryesore + Galeri)</label>
+          {/* ✅ Ndarja vizuale midis Imazhit Kryesor dhe Galerisë */}
+          <div className="flex flex-col sm:flex-row gap-6">
             
-            {previewsToRender.length === 0 ? (
+            {/* Imazhi Kryesor */}
+            <div>
+              <label className={LBL}>Imazhi Kryesor *</label>
+              <input ref={mainFileRef} type="file" accept="image/*" className="hidden" onChange={handleMainImage} />
+              
               <div 
-                className="border-2 border-dashed border-gray-200 hover:border-[#f68048]/60 rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all bg-gray-50/50 hover:bg-orange-50 group min-h-[160px]" 
-                onClick={() => fileRef.current?.click()}
+                onClick={() => mainFileRef.current?.click()}
+                className="w-32 h-32 rounded-2xl border-2 border-dashed border-gray-200 hover:border-[#f68048] flex flex-col items-center justify-center cursor-pointer bg-gray-50 hover:bg-orange-50 transition-all relative overflow-hidden group"
               >
-                <div className="w-14 h-14 rounded-full bg-white shadow-sm border border-gray-100 flex items-center justify-center group-hover:scale-110 transition-transform mb-3">
-                  <UploadCloud size={24} className="text-[#f68048]" strokeWidth={2.5} />
-                </div>
-                <span className="text-sm font-semibold text-gray-500">Zgjidh deri në 10 imazhe</span>
-                <span className="text-[10px] text-gray-400 mt-1">Imazhi i parë do të jetë kryesori</span>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex gap-3 overflow-x-auto pb-2 form-custom-scrollbar">
-                  {previewsToRender.map((src, idx) => (
-                    <div key={idx} className="relative group shrink-0 w-32 h-32 rounded-xl border border-gray-200 overflow-hidden bg-gray-50">
-                      <img src={src} className="w-full h-full object-contain" alt={`Preview ${idx}`} />
-                      {/* Badge for Main Image */}
-                      {idx === 0 && (
-                        <div className="absolute top-1 left-1 bg-[#f68048] text-white text-[9px] font-black uppercase px-2 py-0.5 rounded shadow">
-                          Kryesore
-                        </div>
-                      )}
-                      {/* Remove Button (Only for newly uploaded files) */}
-                      {imageFiles.length > 0 && (
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); removeNewImage(idx); }}
-                          className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
+                {(mainImageFile || existingMainImage) ? (
+                  <>
+                    <img 
+                      src={mainImageFile ? URL.createObjectURL(mainImageFile) : existingMainImage} 
+                      className="w-full h-full object-cover" 
+                      alt="Main" 
+                    />
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="text-white text-xs font-bold px-2 py-1 bg-black/40 rounded-md">Ndrysho</span>
                     </div>
-                  ))}
-                  
-                  {/* Add more button */}
-                  <button 
-                    onClick={() => fileRef.current?.click()}
-                    className="w-32 h-32 shrink-0 rounded-xl border-2 border-dashed border-gray-200 hover:border-[#f68048] flex flex-col items-center justify-center text-gray-400 hover:text-[#f68048] hover:bg-orange-50 transition-colors"
-                  >
-                    <Plus size={24} />
-                    <span className="text-xs font-bold mt-1">Shto</span>
-                  </button>
-                </div>
-                {imageFiles.length > 0 && (
-                  <p className="text-xs text-orange-500 font-semibold">* Keni ngarkuar {imageFiles.length} imazhe të reja. Këto do të zëvendësojnë imazhet ekzistuese pas ruajtjes.</p>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center justify-center">
+                    <UploadCloud size={24} className="text-[#f68048] mb-2" />
+                    <span className="text-xs font-semibold text-gray-500">Ngarko</span>
+                  </div>
                 )}
+                <div className="absolute top-1 left-1 bg-[#f68048] text-white text-[9px] font-black uppercase px-2 py-0.5 rounded shadow">
+                  Kryesore
+                </div>
               </div>
-            )}
-            {/* Added multiple property */}
-            <input ref={fileRef} type="file" multiple accept="image/*" className="hidden" onChange={handleImages} />
+            </div>
+
+            {/* Galeria */}
+            <div className="flex-1 overflow-hidden">
+              <label className={LBL}>Galeria (Opsionale)</label>
+              <input ref={galleryFileRef} type="file" multiple accept="image/*" className="hidden" onChange={handleGalleryImages} />
+              
+              <div className="flex gap-3 overflow-x-auto pb-2 form-custom-scrollbar">
+                
+                {/* 1. Fotot ekzistuese të galerisë (Vijnë nga DB) */}
+                {existingGallery.map((src, idx) => (
+                  <div key={`exist-${idx}`} className="relative group shrink-0 w-32 h-32 rounded-2xl border border-gray-200 overflow-hidden bg-gray-50">
+                    <img src={src} className="w-full h-full object-contain" alt={`Gallery ${idx}`} />
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); removeExistingGalleryImage(idx); }}
+                      className="absolute top-1 right-1 bg-white/90 text-red-500 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 hover:text-white shadow-sm"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+
+                {/* 2. Fotot e reja të zgjedhura për galerinë (File Lokale) */}
+                {galleryFiles.map((f, idx) => (
+                  <div key={`new-${idx}`} className="relative group shrink-0 w-32 h-32 rounded-2xl border-2 border-orange-200 overflow-hidden bg-orange-50/30">
+                    <img src={URL.createObjectURL(f)} className="w-full h-full object-contain" alt={`New Gallery ${idx}`} />
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); removeGalleryFile(idx); }}
+                      className="absolute top-1 right-1 bg-white/90 text-red-500 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 hover:text-white shadow-sm"
+                    >
+                      <X size={14} />
+                    </button>
+                    <div className="absolute bottom-1 left-1 bg-orange-500 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded shadow">E RE</div>
+                  </div>
+                ))}
+
+                {/* Butoni Shto në Galeri */}
+                <button 
+                  onClick={() => galleryFileRef.current?.click()}
+                  className="w-32 h-32 shrink-0 rounded-2xl border-2 border-dashed border-gray-200 hover:border-[#f68048] flex flex-col items-center justify-center text-gray-400 hover:text-[#f68048] hover:bg-orange-50 transition-colors"
+                >
+                  <Plus size={24} />
+                  <span className="text-xs font-bold mt-1">Shto foto</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <div>
