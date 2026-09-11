@@ -172,8 +172,14 @@ export const getPublicProducts = async (req, res) => {
     const page = parseInt(req.query.page, 10) || 1;
     const offset = (page - 1) * limit;
 
+    // 🚀 FIXED: We manually select lightweight columns ONLY. 
+    // Notice how we excluded `p.gallery_images` and `p.nutritional_info`
     const query = `
-      SELECT ${discountSelectLogic}
+      SELECT 
+        p.id, p.name, p.description, p.quantity, p.image_url, 
+        p.category_id, p.brand_id, p.created_at,
+        c.name as category,
+        ${discountSelectLogic}
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
       ${discountJoinLogic}
@@ -189,8 +195,10 @@ export const getPublicProducts = async (req, res) => {
   }
 };
 
+
 export const getPublicProductDetail = async (req, res) => {
   try {
+    // 🚀 FOR DETAIL, WE PULL p.* (WHICH INCLUDES GALLERY AND NUTRITION)
     const { rows } = await promisePool.query(`
       SELECT p.*, c.name as category, ${discountSelectLogic}
       FROM products p 
@@ -201,9 +209,27 @@ export const getPublicProductDetail = async (req, res) => {
 
     if (!rows.length) return res.status(404).json({ error: "Product not found" });
     
-    // Ensure gallery_images is returned as an array even if null
-    const product = rows[0];
-    product.gallery_images = product.gallery_images || [];
+    let product = rows[0];
+
+    // 🚀 FIX: Convert Postgres '{url1, url2}' string to a true JavaScript array
+    if (typeof product.gallery_images === 'string') {
+        product.gallery_images = product.gallery_images
+          .replace(/^\{|\}$/g, '') // removes curly brackets
+          .split(',')
+          .map(url => url.trim())
+          .filter(url => url.length > 0);
+    } else {
+        product.gallery_images = Array.isArray(product.gallery_images) ? product.gallery_images : [];
+    }
+
+    // 🚀 FIX: Ensure nutrition is parsed if Postgres returns it as a string
+    if (typeof product.nutritional_info === 'string') {
+        try {
+            product.nutritional_info = JSON.parse(product.nutritional_info);
+        } catch (e) {
+            product.nutritional_info = null;
+        }
+    }
     
     res.json(product);
   } catch (error) {
@@ -211,6 +237,7 @@ export const getPublicProductDetail = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch product details" });
   }
 };
+
 
 export const getDiscountedProducts = async (req, res) => {
   try {
