@@ -192,7 +192,7 @@ export const getPublicProducts = async (req, res) => {
 export const getPublicProductDetail = async (req, res) => {
   try {
     const { rows } = await promisePool.query(`
-      SELECT ${discountSelectLogic}
+      SELECT p.*, c.name as category, ${discountSelectLogic}
       FROM products p 
       LEFT JOIN categories c ON p.category_id = c.id
       ${discountJoinLogic}
@@ -200,7 +200,12 @@ export const getPublicProductDetail = async (req, res) => {
     `, [req.params.id]);
 
     if (!rows.length) return res.status(404).json({ error: "Product not found" });
-    res.json(rows[0]);
+    
+    // Ensure gallery_images is returned as an array even if null
+    const product = rows[0];
+    product.gallery_images = product.gallery_images || [];
+    
+    res.json(product);
   } catch (error) {
     console.error("Error in getPublicProductDetail:", error);
     res.status(500).json({ error: "Failed to fetch product details" });

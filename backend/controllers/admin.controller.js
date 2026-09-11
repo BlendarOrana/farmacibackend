@@ -281,66 +281,88 @@ export const createProduct = async (req, res) => {
   }
 
   let image_url = null;
-  if (req.file) {
+  let gallery_images = [];
+
+  // Helper function for uploading with crisp resolution
+  const processImage = async (buffer) => {
     const key = `products/${uuidv4()}.webp`;
-    const result = await processAndUpload(req.file.buffer, key, { maxWidth: 800, maxHeight: 800, quality: 85 });
-    image_url = result.url;
+    // Increased to 1200x1200 and 90 quality for sharp mobile rendering
+    const result = await processAndUpload(buffer, key, { maxWidth: 1200, maxHeight: 1200, quality: 90 });
+    return result.url;
+  };
+
+  // If you changed your route to upload.array('images')
+  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+    // 1st image becomes the main image_url
+    image_url = await processImage(req.files[0].buffer);
+    
+    // Remaining images become the gallery array
+    if (req.files.length > 1) {
+      const galleryPromises = req.files.slice(1).map(file => processImage(file.buffer));
+      gallery_images = await Promise.all(galleryPromises);
+    }
+  } 
+  // Fallback if it's still sending a single file via upload.single('image')
+  else if (req.file) {
+    image_url = await processImage(req.file.buffer);
   }
 
-  // ✅ UPDATED: Insert brand_id
+  // ✅ UPDATED: Insert gallery_images alongside brand_id
   const { rows } = await promisePool.query(
-    `INSERT INTO products (name, description, price, quantity, category_id, brand_id, image_url, nutritional_info)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-    [name, description || null, price, quantity || 0, category_id || null, brand_id || null, image_url, parsedNutrition]
+    `INSERT INTO products (name, description, price, quantity, category_id, brand_id, image_url, nutritional_info, gallery_images)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [name, description || null, price, quantity || 0, category_id || null, brand_id || null, image_url, parsedNutrition, gallery_images]
   );
+  
   res.status(201).json(rows[0]);
 };
 
+
 export const updateProduct = async (req, res) => {
-  const { name, description, price, quantity, category_id, brand_id, nutritional_info } = req.body;
   const { id } = req.params;
+  const { name, description, price, quantity, category_id, brand_id, nutritional_info } = req.body;
 
-  const existing = await promisePool.query("SELECT * FROM products WHERE id = $1", [id]);
-  if (!existing.rows.length) return res.status(404).json({ error: "Product not found" });
-
-  let parsedNutrition = existing.rows[0].nutritional_info;
-  if (nutritional_info !== undefined) {
-    if (nutritional_info === 'null' || !nutritional_info) {
-      parsedNutrition = null;
-    } else {
-      try {
-        parsedNutrition = typeof nutritional_info === 'string' ? JSON.parse(nutritional_info) : nutritional_info;
-      } catch (e) {
-        return res.status(400).json({ error: "Invalid nutritional_info format" });
-      }
+  let parsedNutrition = null;
+  if (nutritional_info && nutritional_info !== "null") {
+    try {
+      parsedNutrition = typeof nutritional_info === 'string' ? JSON.parse(nutritional_info) : nutritional_info;
+    } catch (e) {
+      return res.status(400).json({ error: "Invalid nutritional_info format" });
     }
   }
 
-  let image_url = existing.rows[0].image_url;
-  if (req.file) {
+  // Get current product state
+  const currentProd = await promisePool.query(`SELECT image_url, gallery_images FROM products WHERE id = $1`, [id]);
+  let image_url = currentProd.rows[0].image_url;
+  let gallery_images = currentProd.rows[0].gallery_images || [];
+
+  const processImage = async (buffer) => {
     const key = `products/${uuidv4()}.webp`;
-    const result = await processAndUpload(req.file.buffer, key, { maxWidth: 800, maxHeight: 800, quality: 85 });
-    image_url = result.url;
+    const result = await processAndUpload(buffer, key, { maxWidth: 1200, maxHeight: 1200, quality: 90 });
+    return result.url;
+  };
+
+  // ✅ If new images are uploaded, overwrite existing ones
+  if (req.files && req.files.length > 0) {
+    image_url = await processImage(req.files[0].buffer);
+    gallery_images = [];
+    if (req.files.length > 1) {
+      const galleryPromises = req.files.slice(1).map(file => processImage(file.buffer));
+      gallery_images = await Promise.all(galleryPromises);
+    }
   }
 
-  // ✅ UPDATED: Update brand_id
   const { rows } = await promisePool.query(
-    `UPDATE products SET name=$1, description=$2, price=$3, quantity=$4, category_id=$5, brand_id=$6, image_url=$7, nutritional_info=$8
-     WHERE id=$9 RETURNING *`,
-    [
-      name ?? existing.rows[0].name,
-      description ?? existing.rows[0].description,
-      price ?? existing.rows[0].price,
-      quantity ?? existing.rows[0].quantity,
-      category_id ?? existing.rows[0].category_id,
-      brand_id ?? existing.rows[0].brand_id,
-      image_url, 
-      parsedNutrition, 
-      id,
-    ]
+    `UPDATE products 
+     SET name = $1, description = $2, price = $3, quantity = $4, category_id = $5, brand_id = $6, image_url = $7, nutritional_info = $8, gallery_images = $9
+     WHERE id = $10 RETURNING *`,
+    [name, description || null, price, quantity || 0, category_id || null, brand_id || null, image_url, parsedNutrition, gallery_images, id]
   );
+
+  if (!rows.length) return res.status(404).json({ error: "Product not found" });
   res.json(rows[0]);
 };
+
 
 export const updateStock = async (req, res) => {
   const { quantity } = req.body;

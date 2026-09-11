@@ -14,7 +14,8 @@ import {
 } from "../controllers/admin.controller.js";
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+// Increase limit slightly for multiple files
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // All admin routes require auth
 router.use(adminRoute);
@@ -35,14 +36,14 @@ router.delete("/brands/:id", deleteBrand);
 
 // ─── CATEGORIES ───
 router.get("/categories", getCategories);
-router.post("/categories", upload.single("image"), createCategory); // ✅ Added upload middleware here
+router.post("/categories", upload.single("image"), createCategory);
 router.delete("/categories/:id", deleteCategory);
 
-// ─── PRODUCTS & DISCOUNTS ───
+// ─── PRODUCTS & DISCOUNTS (✅ UPDATED TO upload.array) ───
 router.get("/products", getProducts);
 router.get("/products/:id", getProduct);
-router.post("/products", upload.single("image"), createProduct);
-router.put("/products/:id", upload.single("image"), updateProduct);
+router.post("/products", upload.array("images", 10), createProduct); // Up to 10 images
+router.put("/products/:id", upload.array("images", 10), updateProduct); // Up to 10 images
 router.patch("/products/:id/stock", updateStock);
 router.delete("/products/:id", deleteProduct);
 

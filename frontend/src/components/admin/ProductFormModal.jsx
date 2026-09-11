@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useAdminStore } from "../../stores/useAdminStore";
-import { X, UploadCloud, CheckCircle2, Plus, Trash2 } from "lucide-react"; 
+import { X, UploadCloud, CheckCircle2, Plus, Trash2, Image as ImageIcon } from "lucide-react"; 
 
 const EMPTY_FORM = { 
   name: "", 
@@ -14,8 +14,10 @@ const EMPTY_FORM = {
 export default function ProductFormModal({ target, categories, brands, onClose, onSuccess, onError }) {
   const { createProduct, updateProduct } = useAdminStore();
   const [form, setForm] = useState(EMPTY_FORM);
-  const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
+  
+  // ✅ Changed to handle Arrays
+  const [imageFiles, setImageFiles] = useState([]);
+  const [existingImages, setExistingImages] = useState([]); // Keeps track of URLs from DB
   const [saving, setSaving] = useState(false);
   const fileRef = useRef();
 
@@ -26,7 +28,6 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
     nutrients: [{ name: "", amount: "" }]
   });
 
-  // Pre-mbushja e formatit gjatë redaktimit ose ngarkimit inicial
   useEffect(() => {
     if (target) {
       setForm({
@@ -37,7 +38,14 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
         category_id: target.category_id || "",
         brand_id: target.brand_id || "" 
       });
-      setImagePreview(target.image_url || null);
+      
+      // ✅ Combine main image + gallery images for preview
+      const existing = [];
+      if (target.image_url) existing.push(target.image_url);
+      if (target.gallery_images && Array.isArray(target.gallery_images)) {
+        existing.push(...target.gallery_images);
+      }
+      setExistingImages(existing);
 
       if (target.nutritional_info) {
         setHasNutrition(true);
@@ -52,11 +60,20 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
     }
   }, [target]);
 
-  const handleImage = (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    setImageFile(f);
-    setImagePreview(URL.createObjectURL(f));
+  const handleImages = (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    setImageFiles(files);
+    setExistingImages([]); // Clear existing previews since backend will overwrite on upload
+  };
+
+  const removeNewImage = (index) => {
+    const dt = new DataTransfer();
+    imageFiles.forEach((file, i) => {
+      if (index !== i) dt.items.add(file);
+    });
+    fileRef.current.files = dt.files;
+    setImageFiles(Array.from(dt.files));
   };
 
   const handleNutritionChange = (field, value) => {
@@ -82,7 +99,11 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
     Object.entries(form).forEach(([k, v]) => {
       if (v !== "" && v !== null) fd.append(k, v);
     });
-    if (imageFile) fd.append("image", imageFile);
+
+    // ✅ Append multiple images (Must match "images" in backend upload.array("images"))
+    imageFiles.forEach((file) => {
+      fd.append("images", file);
+    });
 
     if (hasNutrition) {
       const cleanNutrients = nutritionData.nutrients
@@ -110,6 +131,11 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
   const INP = "w-full bg-gray-50 rounded-xl px-4 py-3.5 text-sm text-gray-900 border border-gray-100 focus:bg-white focus:border-[#f68048] focus:ring-4 focus:ring-[#f68048]/10 transition-all outline-none placeholder:text-gray-300 font-medium";
   const INP_SM = "min-w-0 bg-white rounded-lg px-3 py-2 text-sm text-gray-900 border border-gray-200 focus:border-[#f68048] focus:ring-2 focus:ring-[#f68048]/10 transition-all outline-none placeholder:text-gray-300 font-medium";
   
+  // Decide which previews to show (Existing DB URLs vs newly uploaded local files)
+  const previewsToRender = imageFiles.length > 0 
+    ? imageFiles.map(f => URL.createObjectURL(f)) 
+    : existingImages;
+
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[999] flex items-center justify-center p-4">
       <div className="absolute inset-0 z-[-1]" onClick={onClose} />
@@ -128,24 +154,62 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
         </div>
 
         <div className="overflow-y-auto p-8 pt-6 pb-2 space-y-6 form-custom-scrollbar flex-1">
+          
+          {/* ✅ UPDATED IMAGE GALLERY UI */}
           <div>
-            <label className={LBL}>Imazhi i Produktit</label>
-            <div className={`border-2 border-dashed rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden bg-gray-50/50 hover:bg-orange-50 group min-h-[160px] ${imagePreview ? "border-transparent bg-black relative" : "border-gray-200 hover:border-[#f68048]/60"}`} onClick={() => fileRef.current?.click()}>
-              {imagePreview ? (
-                <div className="w-full relative flex justify-center group bg-black rounded-xl">
-                  <img src={imagePreview} className="max-h-[220px] object-contain bg-white w-full rounded-xl opacity-90 group-hover:opacity-60 transition-opacity" alt="Preview" />
-                  <div className="absolute inset-0 flex flex-col justify-center items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="text-white font-bold bg-black/60 px-4 py-2 rounded-lg text-sm flex gap-2"><UploadCloud size={18} /> Ndrysho imazhin</span>
-                  </div>
+            <label className={LBL}>Imazhet e Produktit (1 Kryesore + Galeri)</label>
+            
+            {previewsToRender.length === 0 ? (
+              <div 
+                className="border-2 border-dashed border-gray-200 hover:border-[#f68048]/60 rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all bg-gray-50/50 hover:bg-orange-50 group min-h-[160px]" 
+                onClick={() => fileRef.current?.click()}
+              >
+                <div className="w-14 h-14 rounded-full bg-white shadow-sm border border-gray-100 flex items-center justify-center group-hover:scale-110 transition-transform mb-3">
+                  <UploadCloud size={24} className="text-[#f68048]" strokeWidth={2.5} />
                 </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full space-y-3 py-6 pointer-events-none">
-                  <div className="w-14 h-14 rounded-full bg-white shadow-sm border border-gray-100 flex items-center justify-center group-hover:scale-110 transition-transform"><UploadCloud size={24} className="text-[#f68048]" strokeWidth={2.5} /></div>
-                  <span className="text-sm font-semibold text-gray-500">Kliko për të ngarkuar imazh</span>
+                <span className="text-sm font-semibold text-gray-500">Zgjidh deri në 10 imazhe</span>
+                <span className="text-[10px] text-gray-400 mt-1">Imazhi i parë do të jetë kryesori</span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex gap-3 overflow-x-auto pb-2 form-custom-scrollbar">
+                  {previewsToRender.map((src, idx) => (
+                    <div key={idx} className="relative group shrink-0 w-32 h-32 rounded-xl border border-gray-200 overflow-hidden bg-gray-50">
+                      <img src={src} className="w-full h-full object-contain" alt={`Preview ${idx}`} />
+                      {/* Badge for Main Image */}
+                      {idx === 0 && (
+                        <div className="absolute top-1 left-1 bg-[#f68048] text-white text-[9px] font-black uppercase px-2 py-0.5 rounded shadow">
+                          Kryesore
+                        </div>
+                      )}
+                      {/* Remove Button (Only for newly uploaded files) */}
+                      {imageFiles.length > 0 && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); removeNewImage(idx); }}
+                          className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  
+                  {/* Add more button */}
+                  <button 
+                    onClick={() => fileRef.current?.click()}
+                    className="w-32 h-32 shrink-0 rounded-xl border-2 border-dashed border-gray-200 hover:border-[#f68048] flex flex-col items-center justify-center text-gray-400 hover:text-[#f68048] hover:bg-orange-50 transition-colors"
+                  >
+                    <Plus size={24} />
+                    <span className="text-xs font-bold mt-1">Shto</span>
+                  </button>
                 </div>
-              )}
-            </div>
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImage} />
+                {imageFiles.length > 0 && (
+                  <p className="text-xs text-orange-500 font-semibold">* Keni ngarkuar {imageFiles.length} imazhe të reja. Këto do të zëvendësojnë imazhet ekzistuese pas ruajtjes.</p>
+                )}
+              </div>
+            )}
+            {/* Added multiple property */}
+            <input ref={fileRef} type="file" multiple accept="image/*" className="hidden" onChange={handleImages} />
           </div>
 
           <div>
@@ -176,7 +240,6 @@ export default function ProductFormModal({ target, categories, brands, onClose, 
               </select>
             </div>
             
-            {/* BRANDI DUKET SAKTËSISHT SI KATEGORIA TANI */}
             <div>
               <label className={LBL}>Brandi (Opsionale)</label>
               <select className={`${INP} cursor-pointer appearance-none bg-no-repeat`} style={{ backgroundImage: `url('data:image/svg+xml;utf8,<svg fill="gray" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>')`, backgroundPositionX: "calc(100% - 16px)", backgroundPositionY: "50%" }} value={form.brand_id} onChange={(e) => setForm({ ...form, brand_id: e.target.value })}>
