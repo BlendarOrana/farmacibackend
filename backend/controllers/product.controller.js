@@ -172,8 +172,7 @@ export const getPublicProducts = async (req, res) => {
     const page = parseInt(req.query.page, 10) || 1;
     const offset = (page - 1) * limit;
 
-    // 🚀 FIXED: We manually select lightweight columns ONLY. 
-    // Notice how we excluded `p.gallery_images` and `p.nutritional_info`
+    // 🚀 FIXED: Removed "WHERE p.quantity > 0" so out-of-stock items are fetched
     const query = `
       SELECT 
         p.id, p.name, p.description, p.quantity, p.image_url, 
@@ -183,7 +182,6 @@ export const getPublicProducts = async (req, res) => {
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
       ${discountJoinLogic}
-      WHERE p.quantity > 0
       ORDER BY p.created_at DESC LIMIT $1 OFFSET $2
     `;
 
