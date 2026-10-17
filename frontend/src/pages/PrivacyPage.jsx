@@ -12,7 +12,7 @@ export default function PrivacyPage() {
           <Link to="/" className="flex items-center">
             {/* Make sure logo.png is inside your public/ folder */}
             <img 
-              src="/logo.png" 
+              src="/adaptive-icon.png" 
               alt="Shneta Logo" 
               className="h-10 w-auto object-contain" 
             />
@@ -101,14 +101,7 @@ export default function PrivacyPage() {
             </section>
             
             {/* Section 6 */}
-            <section>
-              <h2 className="text-xl font-bold text-gray-900 mb-3 flex items-center gap-2">
-                <span style={{ color: brandColor }}>6.</span> Your Rights
-              </h2>
-              <p>
-                You have the right to access, update, or delete your personal information at any time. You can make these changes through your account dashboard, or by reaching out to our support team.
-              </p>
-            </section>
+
 
           </div>
           
